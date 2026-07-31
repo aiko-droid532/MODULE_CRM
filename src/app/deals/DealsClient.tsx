@@ -698,8 +698,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
 
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px'}}>
                           <span className={styles.priceTagSmall} title={deal.priceLocked ? 'Цена зафиксирована (Договор)' : deal.hasActivePromo ? 'Цена по акции' : undefined}>
-                            {deal.priceLocked && <span style={{ marginRight: '3px' }}>🔒</span>}
-                            {deal.hasActivePromo && !deal.priceLocked && <span style={{ marginRight: '3px', color: '#dc2626' }}>%</span>}
+                            {deal.hasActivePromo && <span style={{ marginRight: '3px', color: '#dc2626' }}>%</span>}
                             {(deal.workingPrice ?? deal.unit?.price) ? `$${Math.round(deal.workingPrice ?? deal.unit.price).toLocaleString()}` : '—'}
                           </span>
 
@@ -809,8 +808,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
                                 </div>
 
                                 <div className={styles.priceTagSmall} title={deal.priceLocked ? 'Цена зафиксирована (Договор)' : deal.hasActivePromo ? 'Цена по акции' : undefined}>
-                                  {deal.priceLocked && <span style={{ marginRight: '3px' }}>🔒</span>}
-                                  {deal.hasActivePromo && !deal.priceLocked && <span style={{ marginRight: '3px', color: '#dc2626' }}>%</span>}
+                                  {deal.hasActivePromo && <span style={{ marginRight: '3px', color: '#dc2626' }}>%</span>}
                                   {(deal.workingPrice ?? deal.unit?.price) ? `$${Math.round(deal.workingPrice ?? deal.unit.price).toLocaleString()}` : '—'}
                                 </div>
                               </div>
@@ -980,7 +978,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
             </div>
             {(selectedDeal.workingPrice != null && Math.round(selectedDeal.workingPrice) !== Math.round(selectedDeal.unit.price || 0)) && (
               <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#dc2626', marginTop: '2px' }}>
-                {selectedDeal.priceLocked ? '🔒 Зафиксировано: ' : '🏷️ Рабочая цена: '}
+                {selectedDeal.priceLocked ? 'Зафиксировано: ' : 'С учётом акций: '}
                 ${Math.round(selectedDeal.workingPrice).toLocaleString()}
               </div>
             )}
