@@ -69,11 +69,14 @@ export function canApplyDiscountPercent(role: UserRole, percent: number): boolea
   return percent <= getMaxDiscountPercent(role);
 }
 
-// Кто должен согласовать скидку такого размера — для текста подсказки в интерфейсе
+// Кто должен согласовать скидку такого размера — для текста подсказки в интерфейсе.
+// Реально согласовать заявку (approveDiscountRequest/rejectDiscountRequest) может только
+// роль с canApprovePromotions (rop/admin) — senior_manager кнопки согласования не видит
+// и провести согласование не может, поэтому "Старший менеджер" как отдельная ступень
+// здесь не указывается, чтобы не вводить в заблуждение (границы берём из DISCOUNT_THRESHOLDS).
 export function getRequiredApproverLabel(percent: number): string {
-  if (percent <= 3) return 'Менеджер';
-  if (percent <= 5) return 'Старший менеджер';
-  if (percent <= 10) return 'Руководитель ОП';
+  if (percent <= getMaxDiscountPercent('manager')) return 'Менеджер';
+  if (percent <= getMaxDiscountPercent('rop')) return 'Руководитель ОП';
   return 'Администратор';
 }
 

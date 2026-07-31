@@ -198,6 +198,54 @@ export function calculateInstallmentPlan(input: InstallmentInput): InstallmentRe
   };
 }
 
+// ── Применение накопительной скидки клиента поверх уже рассчитанного графика ──
+// Уменьшает итоговую цену и "срезает" разницу с конца графика (последний платёж,
+// а если его не хватает — каскадом на более ранние платежи). Возвращает результат
+// в точности в том виде, в котором он должен быть сохранён — чтобы то, что менеджер
+// видит на экране до сохранения, и то, что реально уходит в БД, всегда совпадало.
+export function applyCumulativeDiscount(
+  result: InstallmentResult,
+  cumulativePercent: number,
+  nbgRate: number
+): InstallmentResult {
+  if (!cumulativePercent) return result;
+
+  const reduction = round2(result.finalPriceUSD * (cumulativePercent / 100));
+  const finalPriceUSD = round2(result.finalPriceUSD - reduction);
+  const finalPricePerSqmUSD = result.finalPriceUSD > 0
+    ? round2(result.finalPricePerSqmUSD * (finalPriceUSD / result.finalPriceUSD))
+    : 0;
+  const finalPriceGEL = round2(finalPriceUSD * nbgRate);
+  const finalPricePerSqmGEL = round2(finalPricePerSqmUSD * nbgRate);
+
+  let remaining = reduction;
+  const schedule = result.schedule
+    .slice()
+    .reverse()
+    .map((row) => {
+      if (remaining <= 0) return row;
+      const cut = Math.min(row.amountUSD, remaining);
+      remaining = round2(remaining - cut);
+      const amountUSD = round2(row.amountUSD - cut);
+      return { ...row, amountUSD, amountGEL: round2(amountUSD * nbgRate) };
+    })
+    .reverse();
+
+  const controlSumUSD = round2(result.controlSumUSD - reduction);
+  const isValid = Math.abs(controlSumUSD - finalPriceUSD) < 0.02 && finalPriceUSD > 0;
+
+  return {
+    ...result,
+    finalPriceUSD,
+    finalPricePerSqmUSD,
+    finalPriceGEL,
+    finalPricePerSqmGEL,
+    controlSumUSD,
+    isValid,
+    schedule,
+  };
+}
+
 // ── Стандартный пресет: 10% / 20% равномерно / остаток = 100% - 10% - 20% ──
 export function applyStandardPreset(
   finalPriceUSD: number,

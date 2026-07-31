@@ -2,13 +2,28 @@
 
 import { db as prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import { requireRole, canManageDeals, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel } from '@/lib/roles';
+import { requireRole, canManageDeals, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
+import { calcPromoPrice } from '@/lib/promotionCalculator';
 
 // Получить все сделки организации через прямой JOIN SQL (очень быстро и безопасно для PgBouncer)
 export async function getDeals(organizationId: string) {
   try {
+    // "Ленивая" проверка снапшота цены — откатывает на каталожную цену сделки, чья акция
+    // уже закончилась, а договор так и не заключён (см. reconcileExpiredPromoDeals)
+    const { reconcileExpiredPromoDeals, getLivePromotionsMap } = await import('./promotions');
+    await reconcileExpiredPromoDeals(organizationId);
+
+    // Карта активных акций по помещениям — чтобы показать акционную цену там, где по сделке
+    // ещё не зафиксирована/не рассчитана своя сумма (totalAmount). Строки уже отсортированы
+    // по startAt ASC — при пересечении акций берём первую (самую раннюю).
+    const promoRows = await getLivePromotionsMap(organizationId);
+    const promoByUnitId: Record<string, any> = {};
+    for (const row of promoRows) {
+      if (!promoByUnitId[row.unitId]) promoByUnitId[row.unitId] = row;
+    }
+
     const rawDeals: any[] = await prisma.$queryRaw`
-      SELECT 
+      SELECT
         d.id as "dealId",
         d.status as "dealStatus",
         d."organizationId" as "dealOrgId",
@@ -16,6 +31,7 @@ export async function getDeals(organizationId: string) {
         d."paymentType" as "dealPaymentType",
         d."downPayment" as "dealDownPayment",
         d."totalAmount" as "dealTotalAmount",
+        d."priceLocked" as "dealPriceLocked",
         d."mortgageBank" as "dealMortgageBank",
         d."mortgageStatus" as "dealMortgageStatus",
         d."mortgageComment" as "dealMortgageComment",
@@ -41,38 +57,53 @@ export async function getDeals(organizationId: string) {
       ORDER BY d."updatedAt" DESC
     `;
 
-    return rawDeals.map(d => ({
-      id: d.dealId,
-      status: d.dealStatus,
-      organizationId: d.dealOrgId,
-      managerId: d.dealManagerId,
-      paymentType: d.dealPaymentType,
-      downPayment: d.dealDownPayment,
-      totalAmount: d.dealTotalAmount,
-      mortgageBank: d.dealMortgageBank || '',
-      mortgageStatus: d.dealMortgageStatus || 'NONE',
-      mortgageComment: d.dealMortgageComment || '',
-      createdAt: d.dealCreatedAt,
-      updatedAt: d.dealUpdatedAt,
-      previousStatus: d.dealPreviousStatus || null,
-      clientName: d.leadName, // Добавили обратную совместимость для DealsClient
-      lead: d.leadId ? {
-        id: d.leadId,
-        name: d.leadName,
-        phone: d.leadPhone,
-        email: d.leadEmail,
-        iin: d.leadIin
-      } : null,
-      unit: d.unitId ? {
-        id: d.unitId,
-        number: d.unitNumber,
-        floor: d.unitFloor,
-        rooms: d.unitRooms,
-        type: d.unitType,
-        area: d.unitArea,
-        price: d.unitPrice
-      } : null
-    }));
+    return rawDeals.map(d => {
+      // "Рабочая" цена по сделке: если сумма уже посчитана (график/расчёт сохранён, в том числе
+      // зафиксированный снапшот) — берём её; иначе, если по объекту сейчас идёт акция — акционную
+      // цену; иначе — обычную каталожную цену объекта.
+      const hasComputedAmount = d.dealTotalAmount != null && Number(d.dealTotalAmount) > 0;
+      const promo = d.unitId ? promoByUnitId[d.unitId] : null;
+      const promoPriceUSD = (!hasComputedAmount && promo && d.unitId)
+        ? calcPromoPrice(d.unitPrice, d.unitArea, promo, promo.nbgRate).promoPriceUSD
+        : null;
+      const workingPrice = hasComputedAmount ? Number(d.dealTotalAmount) : (promoPriceUSD ?? d.unitPrice ?? null);
+
+      return {
+        id: d.dealId,
+        status: d.dealStatus,
+        organizationId: d.dealOrgId,
+        managerId: d.dealManagerId,
+        paymentType: d.dealPaymentType,
+        downPayment: d.dealDownPayment,
+        totalAmount: d.dealTotalAmount,
+        priceLocked: d.dealPriceLocked || false,
+        workingPrice,
+        hasActivePromo: !!promoPriceUSD,
+        mortgageBank: d.dealMortgageBank || '',
+        mortgageStatus: d.dealMortgageStatus || 'NONE',
+        mortgageComment: d.dealMortgageComment || '',
+        createdAt: d.dealCreatedAt,
+        updatedAt: d.dealUpdatedAt,
+        previousStatus: d.dealPreviousStatus || null,
+        clientName: d.leadName, // Добавили обратную совместимость для DealsClient
+        lead: d.leadId ? {
+          id: d.leadId,
+          name: d.leadName,
+          phone: d.leadPhone,
+          email: d.leadEmail,
+          iin: d.leadIin
+        } : null,
+        unit: d.unitId ? {
+          id: d.unitId,
+          number: d.unitNumber,
+          floor: d.unitFloor,
+          rooms: d.unitRooms,
+          type: d.unitType,
+          area: d.unitArea,
+          price: d.unitPrice
+        } : null
+      };
+    });
   } catch (error) {
     console.error('getDeals SQL error:', error);
     return [];
@@ -107,7 +138,7 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
     await requireRole(canManageDeals, 'изменение статуса сделки');
     // 1. Проверяем бизнес-правила переходов по воронке
     const deals: any[] = await prisma.$queryRaw`
-      SELECT "unitId" FROM "Deal" WHERE "id" = ${dealId} LIMIT 1
+      SELECT "unitId", "priceLocked", "catalogPriceUSD", "basePriceUSD", "totalAmount" FROM "Deal" WHERE "id" = ${dealId} LIMIT 1
     `;
     const deal = deals[0];
 
@@ -163,6 +194,16 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
       )
     `;
 
+    // 2.3 Снапшот цены: сделка дошла до "Договор" — цена фиксируется и больше не откатывается
+    // при истечении акции. Дальше менять её сможет только РОП/админ (см. saveInstallmentPlanAction/savePaymentScheduleAction).
+    if (status === 'DEAL' && deal && !deal.priceLocked) {
+      await prisma.$executeRaw`
+        UPDATE "Deal"
+        SET "priceLocked" = true, "priceLockedAt" = NOW(), "priceLockedById" = ${mgrId}, "updatedAt" = NOW()
+        WHERE "id" = ${dealId}
+      `;
+    }
+
     // 2.5 Синхронизация статуса лида со статусом сделки (раздел 3 ТЗ)
     if (status === 'FAILED' || status === 'CANCELLED') {
       await prisma.$executeRaw`
@@ -197,6 +238,31 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
               NOW()
             )
           `;
+        }
+
+        // Снапшот отменяется вместе с договором: цена (даже если была зафиксирована) откатывается
+        // на каталожную — акция/индивидуальная/накопительная скидки по расторгнутой сделке не сохраняются.
+        if (deal && deal.catalogPriceUSD != null && Math.abs(deal.catalogPriceUSD - (deal.basePriceUSD ?? deal.catalogPriceUSD)) > 0.01) {
+          const oldTotal = Number(deal.totalAmount) || 0;
+          const ratio = oldTotal > 0 ? deal.catalogPriceUSD / oldTotal : 1;
+          await prisma.$executeRaw`
+            UPDATE "Deal"
+            SET "totalAmount" = ${deal.catalogPriceUSD},
+                "basePriceUSD" = ${deal.catalogPriceUSD},
+                "discountPercent" = 0,
+                "discountAmountUSD" = 0,
+                "discountApprovedById" = NULL,
+                "discountApprovedByRole" = NULL,
+                "updatedAt" = NOW()
+            WHERE id = ${dealId}
+          `;
+          if (oldTotal > 0) {
+            await prisma.$executeRaw`
+              UPDATE "PaymentSchedule"
+              SET "amount" = "amount" * ${ratio}, "updatedAt" = NOW()
+              WHERE "dealId" = ${dealId} AND status != 'PAID'
+            `;
+          }
         }
       }
     } else {
@@ -602,6 +668,7 @@ export async function saveInstallmentPlanAction(data: {
   scheduleType: 'STANDARD' | 'CUSTOM';
   periodicity: 'MONTHLY' | 'QUARTERLY' | 'BIWEEKLY';
   basePriceUSD: number;
+  catalogPriceUSD?: number;
   discountApplyType: 'TOTAL_AREA' | 'PER_SQM';
   discountAmountUSD: number;
   finalPriceUSD: number;
@@ -623,15 +690,52 @@ export async function saveInstallmentPlanAction(data: {
   try {
     const role = await requireRole(canManageDeals, 'сохранение графика рассрочки');
 
-    // Индивидуальная скидка — пороги согласования по ролям (раздел 3 ТЗ "Акции и специальные предложения")
+    // Цена зафиксирована (сделка уже дошла до статуса "Договор") — менять её может только РОП/админ
+    const lockedRows: any[] = await prisma.$queryRaw`
+      SELECT "priceLocked" FROM "Deal" WHERE id = ${data.dealId} LIMIT 1
+    `;
+    if (lockedRows[0]?.priceLocked && !canApprovePromotions(role)) {
+      return {
+        success: false,
+        error: 'Цена по этой сделке зафиксирована после заключения договора. Изменить может только руководитель ОП.',
+      };
+    }
+
+    // Индивидуальная (+ накопительная, уже включённая в finalPriceUSD) скидка
     const discountPercent = data.basePriceUSD > 0
       ? Math.round(((data.basePriceUSD - data.finalPriceUSD) / data.basePriceUSD) * 1000) / 10
       : 0;
-    if (discountPercent > 0 && !canApplyDiscountPercent(role, discountPercent)) {
-      return {
-        success: false,
-        error: `Скидка ${discountPercent}% превышает порог вашей роли (до ${getMaxDiscountPercent(role)}%). Требуется согласование: ${getRequiredApproverLabel(discountPercent)}.`,
-      };
+    // Эффект самой акции — разница между каталожной ценой (до акции) и basePriceUSD (после акции)
+    const promoDiscountPercent = data.catalogPriceUSD && data.catalogPriceUSD > 0
+      ? Math.round(((data.catalogPriceUSD - data.basePriceUSD) / data.catalogPriceUSD) * 1000) / 10
+      : 0;
+    // Порог согласования — по СУММАРНОМУ эффекту: акция + индивидуальная + накопительная
+    // (раздел 6 ТЗ "Акции и специальные предложения")
+    const combinedDiscountPercent = Math.round((promoDiscountPercent + discountPercent) * 10) / 10;
+
+    // Уходит заявкой на согласование РОП/админу (а не отклоняется отказом), если:
+    // а) роль manager и есть хоть какая-то ручная скидка (даже в пределах её порога — по договорённости
+    //    любая ручная скидка менеджера требует подтверждения), ИЛИ
+    // б) суммарный эффект (акция + индивидуальная + накопительная) выше СОБСТВЕННОГО порога роли —
+    //    иначе применение уже одобренной при создании крупной акции без всякой доп.скидки было бы
+    //    вообще несохраняемым для всех ролей кроме admin.
+    const needsApproval = (role === 'manager' && discountPercent > 0)
+      || (combinedDiscountPercent > 0 && !canApplyDiscountPercent(role, combinedDiscountPercent));
+
+    if (needsApproval) {
+      const { submitDiscountApprovalRequest } = await import('./discountApprovals');
+      const reqRes = await submitDiscountApprovalRequest({
+        dealId: data.dealId,
+        sourcePath: 'SHAKHMATKA',
+        proposedPayload: data,
+        proposedDiscountPercent: combinedDiscountPercent,
+        submittedById: data.initiatorId || '',
+        organizationId: data.organizationId,
+      });
+      if (!reqRes.success) {
+        return { success: false, error: 'Не удалось отправить скидку на согласование' };
+      }
+      return { success: true, pendingApproval: true };
     }
 
     await prisma.$executeRaw`
@@ -642,6 +746,7 @@ export async function saveInstallmentPlanAction(data: {
         "scheduleType" = ${data.scheduleType},
         "periodicity" = ${data.periodicity},
         "basePriceUSD" = ${data.basePriceUSD},
+        "catalogPriceUSD" = ${data.catalogPriceUSD ?? null},
         "discountApplyType" = ${data.discountApplyType},
         "discountAmountUSD" = ${data.discountAmountUSD},
         "discountPercent" = ${discountPercent},

@@ -80,6 +80,12 @@ export default function PricingClient({ projects, initialPromotions, organizatio
   const canApprove = canApprovePromotions(role);
   const canMic = canManagePrices(role);
 
+  // Дата/время акции форматируются в локальном часовом поясе браузера смотрящего
+  // (см. formatGeorgiaDateTime) — на сервере при SSR его нет, поэтому первый рендер
+  // до монтирования в браузере не должен пытаться его показывать (иначе hydration mismatch).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   // ── Накопительные скидки (Этап 2.2) ──────────────────────────────────────
   const [loyaltyTiers, setLoyaltyTiers] = useState<any[]>([]);
   const [loyaltyMinPurchases, setLoyaltyMinPurchases] = useState(2);
@@ -206,7 +212,6 @@ export default function PricingClient({ projects, initialPromotions, organizatio
         areaMax: filterAreaMax ? Number(filterAreaMax) : undefined,
         type: filterType || undefined,
         rooms: filterRooms ? Number(filterRooms) : undefined,
-        excludePromotionId: editingId || undefined,
       });
       setPreviewUnits(units);
       setExcludedIds(new Set());
@@ -390,7 +395,7 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                   <tr key={p.id}>
                     <td style={{ fontWeight: 700 }}>{p.name}</td>
                     <td>{EFFECT_TYPE_LABELS[p.effectType as PromotionEffectType]}: {formatEffectSummary({ effectType: p.effectType, effectValueType: p.effectValueType, effectValue: p.effectValue })}</td>
-                    <td style={{ fontSize: '0.78rem' }}>{formatGeorgiaDateTime(p.startAt)} — {formatGeorgiaDateTime(p.endAt)}</td>
+                    <td style={{ fontSize: '0.78rem' }}>{mounted ? `${formatGeorgiaDateTime(p.startAt)} — ${formatGeorgiaDateTime(p.endAt)}` : '…'}</td>
                     <td>{p.unitsCount}</td>
                     <td><span className={`${styles.badge} ${(styles as any)[STATUS_BADGE_CLASS[displayStatus]]}`}>{STATUS_LABELS[displayStatus]}</span></td>
                     <td style={{ fontSize: '0.78rem', color: '#64748b' }}>{p.createdByName || '—'}</td>
@@ -597,7 +602,8 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                 {loading ? 'Подбираю...' : 'Подобрать помещения'}
               </button>
               <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '6px' }}>
-                Помещения, уже участвующие в другой активной или согласованной акции, в список не попадут — акции не суммируются.
+                Помещение может входить в несколько акций с пересекающимися периодами — скидки не суммируются,
+                действует та акция, что началась раньше, и до конца именно её периода.
               </p>
             </div>
 

@@ -15,8 +15,12 @@ function toCustomerDiscountType(effectValueType: string): 'percent' | 'amount' {
 }
 
 // ── Подбор помещений по фильтру (шаг 1 конструктора) ────────────────────────
-// Возвращает только помещения, которые СЕЙЧАС не участвуют ни в одной активной
-// (или ещё не наступившей согласованной) акции — правило "не суммируются".
+// Помещение может входить в несколько акций одновременно (пересечение периодов
+// разрешено) — какая из них реально действует в конкретный момент решает
+// getLivePromotionForUnit/getLivePromotionsMap по правилу приоритета "чья акция
+// началась раньше — та и действует до конца своего периода, затем в силу
+// вступает следующая". Поэтому здесь фильтр НЕ исключает помещения, уже
+// состоящие в другой акции — только реально занятые (не FREE) помещения.
 export async function getFilteredUnitsForPromotion(filters: {
   organizationId: string;
   projectId?: string;
@@ -27,7 +31,6 @@ export async function getFilteredUnitsForPromotion(filters: {
   areaMax?: number;
   type?: string;
   rooms?: number;
-  excludePromotionId?: string; // при редактировании — не исключать помещения самой этой акции
 }) {
   try {
     const units: any[] = await prisma.$queryRaw`
@@ -47,14 +50,6 @@ export async function getFilteredUnitsForPromotion(filters: {
         ${filters.areaMax != null ? Prisma.sql`AND u.area <= ${filters.areaMax}` : Prisma.empty}
         ${filters.type ? Prisma.sql`AND u.type = ${filters.type}` : Prisma.empty}
         ${filters.rooms != null ? Prisma.sql`AND u.rooms = ${filters.rooms}` : Prisma.empty}
-        AND NOT EXISTS (
-          SELECT 1 FROM "PromotionUnit" pu
-          JOIN "Promotion" pr ON pu."promotionId" = pr.id
-          WHERE pu."unitId" = u.id
-            AND pr.status IN ('DRAFT', 'ACTIVE')
-            AND pr."endAt" > NOW()
-            ${filters.excludePromotionId ? Prisma.sql`AND pr.id != ${filters.excludePromotionId}` : Prisma.empty}
-        )
       ORDER BY p.name, b.number, u.floor, u.number
       LIMIT 500
     `;
@@ -300,7 +295,66 @@ export async function deletePromotion(promotionId: string, organizationId: strin
   }
 }
 
+// ── Возврат к каталожной цене, если акция закончилась, а сделка не дошла до "Договор" ──
+// Снапшот цены на сделке: цена фиксируется навсегда только когда сделка доходит до статуса
+// "Договор" (Deal.priceLocked = true, см. updateDealStatus в actions/deals.ts). Пока сделка
+// не зафиксирована, а акция, под которую она была рассчитана, уже закончилась (и помещение
+// сейчас не участвует ни в какой другой активной акции) — сумма и график сделки откатываются
+// на изначальную (каталожную) цену. Крон-джобы нет: проверка "ленивая", вызывается при
+// каждой загрузке списка сделок (getDeals), поэтому откат происходит практически сразу
+// после истечения акции, без ручных действий.
+export async function reconcileExpiredPromoDeals(organizationId: string) {
+  try {
+    const stale: any[] = await prisma.$queryRaw`
+      SELECT d.id, d."catalogPriceUSD", d."totalAmount"
+      FROM "Deal" d
+      WHERE d."organizationId" = ${organizationId}
+        AND d."priceLocked" = false
+        AND d."catalogPriceUSD" IS NOT NULL
+        AND d."basePriceUSD" IS NOT NULL
+        AND d."catalogPriceUSD" > d."basePriceUSD" + 0.01
+        AND d.status NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')
+        AND NOT EXISTS (
+          SELECT 1 FROM "Promotion" pr
+          JOIN "PromotionUnit" pu ON pu."promotionId" = pr.id
+          WHERE pu."unitId" = d."unitId"
+            AND pr.status = 'ACTIVE'
+            AND NOW() BETWEEN pr."startAt" AND pr."endAt"
+        )
+    `;
+
+    for (const deal of stale) {
+      const oldTotal = Number(deal.totalAmount) || 0;
+      const ratio = oldTotal > 0 ? deal.catalogPriceUSD / oldTotal : 1;
+      await prisma.$executeRaw`
+        UPDATE "Deal"
+        SET "totalAmount" = ${deal.catalogPriceUSD},
+            "basePriceUSD" = ${deal.catalogPriceUSD},
+            "discountPercent" = 0,
+            "discountAmountUSD" = 0,
+            "discountApprovedById" = NULL,
+            "discountApprovedByRole" = NULL,
+            "updatedAt" = NOW()
+        WHERE id = ${deal.id}
+      `;
+      if (oldTotal > 0) {
+        await prisma.$executeRaw`
+          UPDATE "PaymentSchedule"
+          SET "amount" = "amount" * ${ratio}, "updatedAt" = NOW()
+          WHERE "dealId" = ${deal.id} AND status != 'PAID'
+        `;
+      }
+    }
+  } catch (error) {
+    console.error('reconcileExpiredPromoDeals error:', error);
+  }
+}
+
 // ── Карта активных акций по всем помещениям организации (для Шахматки) ──────
+// Правило при пересечении акций на одном помещении (задел на будущее, когда
+// пересечение станет разрешённым): чья акция началась раньше — та и действует
+// до конца своего периода. Поэтому строки идут ORDER BY "startAt" ASC — вызывающая
+// сторона должна брать ПЕРВОЕ вхождение на unitId, а не перезаписывать его последующими.
 export async function getLivePromotionsMap(organizationId: string) {
   noStore();
   try {
@@ -312,6 +366,7 @@ export async function getLivePromotionsMap(organizationId: string) {
       WHERE pr."organizationId" = ${organizationId}
         AND pr.status = 'ACTIVE'
         AND NOW() BETWEEN pr."startAt" AND pr."endAt"
+      ORDER BY pr."startAt" ASC
     `;
     return rows;
   } catch (error) {
@@ -321,6 +376,8 @@ export async function getLivePromotionsMap(organizationId: string) {
 }
 
 // ── Активная акция для одного конкретного помещения (для карточки лида) ────
+// См. комментарий у getLivePromotionsMap — при пересечении выигрывает та акция,
+// что стартовала раньше (ORDER BY "startAt" ASC + LIMIT 1), детерминированно.
 export async function getLivePromotionForUnit(unitId: string) {
   noStore();
   try {
@@ -332,6 +389,7 @@ export async function getLivePromotionForUnit(unitId: string) {
       WHERE pu."unitId" = ${unitId}
         AND pr.status = 'ACTIVE'
         AND NOW() BETWEEN pr."startAt" AND pr."endAt"
+      ORDER BY pr."startAt" ASC
       LIMIT 1
     `;
     return rows[0] || null;

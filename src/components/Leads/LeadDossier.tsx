@@ -21,6 +21,7 @@ import { calcPromoPrice, formatEffectSummary } from "@/lib/promotionCalculator";
 import { canManageDeals, isReadOnly, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel, UserRole } from "@/lib/roles";
 import {
   calculateInstallmentPlan,
+  applyCumulativeDiscount,
   applyStandardPreset,
   calcBasePrice,
   calcFinalPrice,
@@ -325,13 +326,19 @@ export default function LeadDossier({
   const calcCumulativePercent = calcCumulativeDiscount?.discountPercent || 0;
   const calcFinalPriceWithCumulative = Math.round((calcLiveFinalPrice * (1 - calcCumulativePercent / 100)) * 100) / 100;
   // Индивидуальная скидка — пороги согласования по ролям.
-  // Порог сверяется по СУММАРНОМУ эффекту: индивидуальная + накопительная (акция уже согласована отдельно при активации)
+  // Порог сверяется по СУММАРНОМУ эффекту: акция + индивидуальная + накопительная
   const calcBasePriceForDiscount = calcUnitEffectivePrice || 0;
+  // Эффект самой акции — разница между каталожной ценой и ценой после акции (до индивидуальной скидки)
+  const calcPromoDiscountPercent = calcUnitData && calcUnitData.price > 0
+    ? Math.round(((calcUnitData.price - calcBasePriceForDiscount) / calcUnitData.price) * 1000) / 10
+    : 0;
   const calcDiscountPercent = calcBasePriceForDiscount > 0
     ? Math.round(((calcBasePriceForDiscount - calcLiveFinalPrice) / calcBasePriceForDiscount) * 1000) / 10
     : 0;
-  const calcCombinedDiscountPercent = Math.round((calcDiscountPercent + calcCumulativePercent) * 10) / 10;
-  const calcDiscountAllowed = canApplyDiscountPercent(role, calcCombinedDiscountPercent);
+  const calcCombinedDiscountPercent = Math.round((calcPromoDiscountPercent + calcDiscountPercent + calcCumulativePercent) * 10) / 10;
+  // Менеджер: любая скидка уходит на согласование РОП, а не сохраняется напрямую —
+  // порог его роли не должен блокировать кнопку (иначе отправить на согласование нечем).
+  const calcDiscountAllowed = role === 'manager' ? true : canApplyDiscountPercent(role, calcCombinedDiscountPercent);
   const calcAutoDates = computeAutoScheduleDates(calcFirstPaymentDate, calcEffectiveDeliveryDate);
   const calcMonthsCount = Math.max(1, calcPeriodsCount(calcAutoDates.scheduleStartDate, calcAutoDates.scheduleEndDate, calcPeriodicity));
 
@@ -541,11 +548,14 @@ export default function LeadDossier({
 
     if (paymentScheme === "CASH") {
       const payDate = calcFullPaymentDate ? new Date(calcFullPaymentDate) : new Date();
+      // Накопительная скидка применяется и здесь — иначе сумма, которая уйдёт в
+      // totalAmount при сохранении, разойдётся с единственной строкой графика.
+      const amountUSD = round2((calcUnitEffectivePrice || 0) * (1 - calcCumulativePercent / 100));
       setSchedule([
         {
           date: payDate.toLocaleDateString(),
-          amountUSD: calcUnitEffectivePrice || 0,
-          amountGEL: Math.round((calcUnitEffectivePrice || 0) * parseFloat(exchangeRate || "1")),
+          amountUSD,
+          amountGEL: Math.round(amountUSD * parseFloat(exchangeRate || "1")),
         },
       ]);
       return;
@@ -564,7 +574,12 @@ export default function LeadDossier({
       deliveryDate: calcEffectiveDeliveryDate,
       lastPaymentAmount: derivedLastAmount,
     };
-    const result = calculateInstallmentPlan(input);
+    const rawResult = calculateInstallmentPlan(input);
+    // Накопительная скидка применяется здесь же, до показа графика на экране,
+    // чтобы то, что видит менеджер, и то, что уйдёт в PaymentSchedule, совпадали.
+    const result = calcCumulativePercent > 0
+      ? applyCumulativeDiscount(rawResult, calcCumulativePercent, parseFloat(exchangeRate || "1"))
+      : rawResult;
     setCalcResult(result);
     setSchedule(
       result.schedule.map((r) => ({
@@ -616,8 +631,16 @@ export default function LeadDossier({
       unitId: selectedInterestForCalc.unitId,
       paymentType: paymentScheme,
       downPayment: paymentScheme === "INSTALLMENT" ? derivedFirstAmount : (calcUnitEffectivePrice || 0),
-      totalAmount: Math.round((paymentScheme === "INSTALLMENT" ? (calcResult?.finalPriceUSD ?? calcLiveFinalPrice) : (calcUnitEffectivePrice || 0)) * (1 - calcCumulativePercent / 100) * 100) / 100,
+      // Итоговая сумма берётся из уже посчитанного (с учётом накопительной скидки)
+      // результата/графика — а не пересчитывается заново отдельной формулой,
+      // чтобы не разойтись с суммой строк schedule, которые уходят в БД тем же вызовом.
+      totalAmount: paymentScheme === "INSTALLMENT"
+        ? (calcResult?.finalPriceUSD ?? calcLiveFinalPrice)
+        : (schedule[0]?.amountUSD ?? (calcUnitEffectivePrice || 0)),
       basePriceUSD: calcUnitEffectivePrice || 0,
+      // Каталожная цена (до акции) — нужна серверу, чтобы порог согласования считался
+      // по СУММАРНОМУ эффекту (акция + индивидуальная + накопительная), а не только по индивидуальной
+      catalogPriceUSD: calcUnitData?.price || 0,
       exchangeRate: parseFloat(exchangeRate || "1"),
       schedule,
       organizationId,
@@ -625,7 +648,9 @@ export default function LeadDossier({
     });
 
     if (res.success) {
-      alert("Финансовый расчет и график платежей успешно сохранены!");
+      alert((res as any).pendingApproval
+        ? "Скидка отправлена на согласование руководителю ОП. Расчёт будет сохранён после подтверждения."
+        : "Финансовый расчет и график платежей успешно сохранены!");
       const updated = await getLeadById(lead.id);
       if (updated) setLead(updated);
     } else {
@@ -1623,13 +1648,15 @@ export default function LeadDossier({
                           {calcCombinedDiscountPercent > 0 && (
                             <div style={{
                               fontSize: "0.72rem", fontWeight: 700, borderRadius: "8px", padding: "6px 10px", margin: "6px 0",
-                              background: calcDiscountAllowed ? "#f0fdf4" : "#fef2f2",
-                              color: calcDiscountAllowed ? "#166534" : "#dc2626",
-                              border: `1px solid ${calcDiscountAllowed ? "#bbf7d0" : "#fecaca"}`
+                              background: role === 'manager' ? "#fffbeb" : (calcDiscountAllowed ? "#f0fdf4" : "#fef2f2"),
+                              color: role === 'manager' ? "#b45309" : (calcDiscountAllowed ? "#166534" : "#dc2626"),
+                              border: `1px solid ${role === 'manager' ? "#fde68a" : (calcDiscountAllowed ? "#bbf7d0" : "#fecaca")}`
                             }}>
-                              Суммарная скидка {calcCombinedDiscountPercent}% (индивидуальная {calcDiscountPercent}% + накопительная {calcCumulativePercent}%){calcDiscountAllowed
-                                ? " — в пределах вашего порога согласования."
-                                : ` — превышает ваш порог (до ${getMaxDiscountPercent(role)}%). Нужно согласование: ${getRequiredApproverLabel(calcCombinedDiscountPercent)}.`}
+                              Суммарная скидка {calcCombinedDiscountPercent}% (акция {calcPromoDiscountPercent}% + индивидуальная {calcDiscountPercent}% + накопительная {calcCumulativePercent}%){role === 'manager'
+                                ? " — будет отправлена на согласование руководителю ОП."
+                                : calcDiscountAllowed
+                                  ? " — в пределах вашего порога согласования."
+                                  : ` — превышает ваш порог (до ${getMaxDiscountPercent(role)}%). Нужно согласование: ${getRequiredApproverLabel(calcCombinedDiscountPercent)}.`}
                             </div>
                           )}
 
@@ -1724,7 +1751,7 @@ export default function LeadDossier({
                               className={styles.saveScheduleBtn}
                               onClick={handleSaveSchedule}
                               disabled={!calcDiscountAllowed}
-                              title={!calcDiscountAllowed ? `Скидка ${calcDiscountPercent}% требует согласования: ${getRequiredApproverLabel(calcDiscountPercent)}` : undefined}
+                              title={!calcDiscountAllowed ? `Суммарная скидка ${calcCombinedDiscountPercent}% требует согласования: ${getRequiredApproverLabel(calcCombinedDiscountPercent)}` : undefined}
                             >
                               Сохранить расчет
                             </button>

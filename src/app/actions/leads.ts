@@ -3,7 +3,7 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { requireRole, canManageDeals, canManageUnits, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel } from '@/lib/roles';
+import { requireRole, canManageDeals, canManageUnits, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
 
 export async function createClient(formData: {
   name: string;
@@ -190,6 +190,11 @@ export async function logPhoneView(leadId: string, managerId: string, reason: st
 
 export async function getLeads(organizationId: string) {
   try {
+    // "Ленивая" проверка снапшота цены — откатывает на каталожную цену сделки, чья акция
+    // уже закончилась, а договор так и не заключён (см. reconcileExpiredPromoDeals)
+    const { reconcileExpiredPromoDeals } = await import('./promotions');
+    await reconcileExpiredPromoDeals(organizationId);
+
     const leads: any[] = await prisma.$queryRaw`
       SELECT l.*, p.name as "interestedProjectName"
       FROM "Lead" l
@@ -738,6 +743,7 @@ export async function savePaymentScheduleAction(data: {
   downPayment: number;
   totalAmount: number;
   basePriceUSD?: number;
+  catalogPriceUSD?: number;
   exchangeRate: number;
   schedule: Array<{ date: string; amountUSD: number; amountGEL: number }>;
   organizationId: string;
@@ -746,17 +752,18 @@ export async function savePaymentScheduleAction(data: {
   try {
     const role = await requireRole(canManageDeals, 'сохранение графика платежей');
 
-    // Индивидуальная скидка — пороги согласования по ролям
+    // Индивидуальная (+ накопительная, уже включённая в totalAmount) скидка
     const basePrice = data.basePriceUSD ?? data.totalAmount;
     const discountPercent = basePrice > 0
       ? Math.round(((basePrice - data.totalAmount) / basePrice) * 1000) / 10
       : 0;
-    if (discountPercent > 0 && !canApplyDiscountPercent(role, discountPercent)) {
-      return {
-        success: false,
-        error: `Скидка ${discountPercent}% превышает порог вашей роли (до ${getMaxDiscountPercent(role)}%). Требуется согласование: ${getRequiredApproverLabel(discountPercent)}.`,
-      };
-    }
+    // Эффект самой акции — разница между каталожной ценой (до акции) и basePrice (после акции)
+    const promoDiscountPercent = data.catalogPriceUSD && data.catalogPriceUSD > 0
+      ? Math.round(((data.catalogPriceUSD - basePrice) / data.catalogPriceUSD) * 1000) / 10
+      : 0;
+    // Порог согласования — по СУММАРНОМУ эффекту: акция + индивидуальная + накопительная
+    // (раздел 6 ТЗ "Акции и специальные предложения")
+    const combinedDiscountPercent = Math.round((promoDiscountPercent + discountPercent) * 10) / 10;
 
     let dealId = '';
 
@@ -777,9 +784,47 @@ export async function savePaymentScheduleAction(data: {
       `;
     }
 
+    // Цена зафиксирована (сделка уже дошла до статуса "Договор") — менять её может только РОП/админ
+    const lockedRows: any[] = await prisma.$queryRaw`
+      SELECT "priceLocked" FROM "Deal" WHERE id = ${dealId} LIMIT 1
+    `;
+    if (lockedRows[0]?.priceLocked && !canApprovePromotions(role)) {
+      return {
+        success: false,
+        error: 'Цена по этой сделке зафиксирована после заключения договора. Изменить может только руководитель ОП.',
+      };
+    }
+
+    // Уходит заявкой на согласование РОП/админу (а не отклоняется отказом), если:
+    // а) роль manager и есть хоть какая-то ручная скидка (даже в пределах её порога — по договорённости
+    //    любая ручная скидка менеджера требует подтверждения), ИЛИ
+    // б) суммарный эффект (акция + индивидуальная + накопительная) выше СОБСТВЕННОГО порога роли —
+    //    иначе применение уже одобренной при создании крупной акции без всякой доп.скидки было бы
+    //    вообще несохраняемым для всех ролей кроме admin.
+    const needsApproval = (role === 'manager' && discountPercent > 0)
+      || (combinedDiscountPercent > 0 && !canApplyDiscountPercent(role, combinedDiscountPercent));
+
+    if (needsApproval) {
+      const { submitDiscountApprovalRequest } = await import('./discountApprovals');
+      const reqRes = await submitDiscountApprovalRequest({
+        dealId,
+        sourcePath: 'LEAD_DOSSIER',
+        proposedPayload: data,
+        proposedDiscountPercent: combinedDiscountPercent,
+        submittedById: data.initiatorId || '',
+        organizationId: data.organizationId,
+      });
+      if (!reqRes.success) {
+        return { success: false, error: 'Не удалось отправить скидку на согласование' };
+      }
+      return { success: true, pendingApproval: true };
+    }
+
     await prisma.$executeRaw`
-      UPDATE "Deal" 
+      UPDATE "Deal"
       SET "paymentType" = ${data.paymentType}, "downPayment" = ${data.downPayment}, "totalAmount" = ${data.totalAmount},
+        "basePriceUSD" = ${basePrice},
+        "catalogPriceUSD" = ${data.catalogPriceUSD ?? null},
         "discountPercent" = ${discountPercent},
         "discountApprovedById" = ${discountPercent > 0 ? (data.initiatorId || null) : null},
         "discountApprovedByRole" = ${discountPercent > 0 ? role : null},

@@ -1,6 +1,6 @@
 .page {
-  padding: 32px;
-  max-width: 1400px;
+  padding: 24px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -12,9 +12,10 @@
 }
 
 .title {
-  font-size: 1.8rem;
+  font-size: 1.75rem;
   font-weight: 800;
   color: #0f172a;
+  letter-spacing: -0.025em;
   margin: 0 0 4px 0;
 }
 

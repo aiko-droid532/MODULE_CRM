@@ -14,6 +14,7 @@ import { updateDealStatus, updateDealMortgage,
   searchUnits } from '@/app/actions/deals';
 import { logCallAttempt, createClient } from '@/app/actions/leads';
 import { getDealGifts, addDealGift, removeDealGift, getAvailableGiftUnits } from '@/app/actions/gifts';
+import { getPendingDiscountRequest, approveDiscountRequest, rejectDiscountRequest } from '@/app/actions/discountApprovals';
 import LeadModal from '@/components/Leads/LeadModal';
 import { useRouter } from 'next/navigation';
 
@@ -145,7 +146,7 @@ function isTransitionAllowed(from: string, to: string): { allowed: boolean; reas
   return { allowed: false, reason: 'Этот переход не разрешён' };
 }
 
-import { canManageDeals, canViewAllDeals, isReadOnly, UserRole } from '@/lib/roles';
+import { canManageDeals, canViewAllDeals, isReadOnly, canApprovePromotions, UserRole } from '@/lib/roles';
 
 interface DealsClientProps {
   initialDeals: any[];
@@ -157,6 +158,7 @@ interface DealsClientProps {
 export default function DealsClient({ initialDeals, organizationId, userRole = 'manager', managerId = '' }: DealsClientProps) {
   const role = userRole as UserRole;
   const canManage = canManageDeals(role);
+  const canApprove = canApprovePromotions(role);
   const canViewAll = canViewAllDeals(role);
   const readOnly = isReadOnly(role);
 
@@ -284,6 +286,7 @@ export default function DealsClient({ initialDeals, organizationId, userRole = '
 const [dealClients, setDealClients] = useState<any[]>([]);
 const [dealUnits, setDealUnits] = useState<any[]>([]);
 const [dealGifts, setDealGifts] = useState<any[]>([]);
+const [pendingDiscountRequest, setPendingDiscountRequest] = useState<any>(null);
 const [showAddGiftModal, setShowAddGiftModal] = useState(false);
 const [giftType, setGiftType] = useState<'DESCRIPTION' | 'UNIT'>('DESCRIPTION');
 const [giftDescription, setGiftDescription] = useState('');
@@ -394,9 +397,11 @@ const loadDealExtras = async (dealId: string) => {
   const clients = await getDealClients(dealId);
   const units = await getDealUnits(dealId);
   const gifts = await getDealGifts(dealId);
+  const pendingDiscount = await getPendingDiscountRequest(dealId);
   setDealClients(clients);
   setDealUnits(units);
   setDealGifts(gifts);
+  setPendingDiscountRequest(pendingDiscount);
 };
 
 // Обновленный handleCardClick
@@ -523,7 +528,9 @@ const handleAddUnit = async () => {
     setSelectedUnit(null);
     setSearchQuery('');
     setSearchResults([]);
-    alert('Объект добавлен в сделку');
+    // alert() блокирует поток синхронно — откладываем на следующий тик,
+    // чтобы браузер успел отрисовать закрытие модалки ДО показа диалога
+    setTimeout(() => alert('Объект добавлен в сделку'), 0);
   } else {
     alert(res.message || 'Ошибка при добавлении объекта');
   }
@@ -610,7 +617,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
           // По ТЗ деньги суммируем только со стадии Личная консультация (CONSULTATION, ранг >= 5)
           const isFinancialStage = !['NEW_LEAD', 'CLARIFICATION', 'CALL', 'SECOND_CALL', 'THIRD_CALL', 'LOST_CANCELLED'].includes(stage.id);
           const stageRevenue = isFinancialStage
-            ? stageDeals.reduce((sum, deal) => sum + (deal.unit?.price || 0), 0)
+            ? stageDeals.reduce((sum, deal) => sum + (deal.workingPrice ?? deal.unit?.price ?? 0), 0)
             : 0;
 
           return (
@@ -690,8 +697,10 @@ const handleSetPrimaryClient = async (leadId: string) => {
                         <div className={styles.clientNameSmall}>{deal.clientName || 'Без имени'}</div>
 
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px'}}>
-                          <span className={styles.priceTagSmall}>
-                            {deal.unit?.price ? `$${deal.unit.price.toLocaleString()}` : '—'}
+                          <span className={styles.priceTagSmall} title={deal.priceLocked ? 'Цена зафиксирована (Договор)' : deal.hasActivePromo ? 'Цена по акции' : undefined}>
+                            {deal.priceLocked && <span style={{ marginRight: '3px' }}>🔒</span>}
+                            {deal.hasActivePromo && !deal.priceLocked && <span style={{ marginRight: '3px', color: '#dc2626' }}>%</span>}
+                            {(deal.workingPrice ?? deal.unit?.price) ? `$${Math.round(deal.workingPrice ?? deal.unit.price).toLocaleString()}` : '—'}
                           </span>
 
                           {/* SLA тикер дней на этапе */}
@@ -799,8 +808,10 @@ const handleSetPrimaryClient = async (leadId: string) => {
                                   {deal.clientName || 'Без имени'}
                                 </div>
 
-                                <div className={styles.priceTagSmall}>
-                                  {deal.unit?.price ? `$${deal.unit.price.toLocaleString()}` : '—'}
+                                <div className={styles.priceTagSmall} title={deal.priceLocked ? 'Цена зафиксирована (Договор)' : deal.hasActivePromo ? 'Цена по акции' : undefined}>
+                                  {deal.priceLocked && <span style={{ marginRight: '3px' }}>🔒</span>}
+                                  {deal.hasActivePromo && !deal.priceLocked && <span style={{ marginRight: '3px', color: '#dc2626' }}>%</span>}
+                                  {(deal.workingPrice ?? deal.unit?.price) ? `$${Math.round(deal.workingPrice ?? deal.unit.price).toLocaleString()}` : '—'}
                                 </div>
                               </div>
                             ))
@@ -830,6 +841,51 @@ const handleSetPrimaryClient = async (leadId: string) => {
             </header>
 
             <main className={styles.modalBody}>
+  {pendingDiscountRequest && canApprove && (
+    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '14px', marginBottom: '16px' }}>
+      <strong style={{ color: '#b45309' }}> На согласовании: скидка {pendingDiscountRequest.proposedDiscountPercent}%</strong>
+      <div style={{ fontSize: '0.82rem', color: '#78350f', margin: '4px 0 10px' }}>
+        Предложил: {pendingDiscountRequest.submittedByName || 'менеджер'}
+      </div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button
+          className={styles.saveMortgageBtn}
+          onClick={async () => {
+            const res = await approveDiscountRequest(pendingDiscountRequest.id, managerId, organizationId);
+            if (res.success) {
+              alert('Скидка согласована и график сохранён.');
+              await loadDealExtras(selectedDeal.id);
+            } else {
+              alert('Ошибка: ' + (res.error || ''));
+            }
+          }}
+        >
+          Согласовать
+        </button>
+        <button
+          className={styles.quickCallBtn}
+          style={{ background: '#fee2e2', color: '#ef4444' }}
+          onClick={async () => {
+            if (!confirm('Отклонить скидку?')) return;
+            const res = await rejectDiscountRequest(pendingDiscountRequest.id, managerId, organizationId);
+            if (res.success) {
+              alert('Скидка отклонена.');
+              await loadDealExtras(selectedDeal.id);
+            } else {
+              alert('Ошибка: ' + (res.error || ''));
+            }
+          }}
+        >
+          Отклонить
+        </button>
+      </div>
+    </div>
+  )}
+  {pendingDiscountRequest && !canApprove && (
+    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '10px 14px', marginBottom: '16px', fontSize: '0.85rem', color: '#b45309' }}>
+       Скидка {pendingDiscountRequest.proposedDiscountPercent}% ожидает согласования РОП.
+    </div>
+  )}
   {/* БЛОК ДАННЫЕ КЛИЕНТА С ПЛЮСИКОМ */}
   <div className={styles.infoSection}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -920,8 +976,14 @@ const handleSetPrimaryClient = async (leadId: string) => {
           <div>
             <strong>{selectedDeal.unit.projectName || 'ЖК'}</strong> – №{selectedDeal.unit.number}
             <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
-              {selectedDeal.unit.rooms} комн. • {selectedDeal.unit.area} м² • ${selectedDeal.unit.price?.toLocaleString()}
+              {selectedDeal.unit.rooms} комн. • {selectedDeal.unit.area} м² • ${selectedDeal.unit.price?.toLocaleString()} (каталог)
             </div>
+            {(selectedDeal.workingPrice != null && Math.round(selectedDeal.workingPrice) !== Math.round(selectedDeal.unit.price || 0)) && (
+              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#dc2626', marginTop: '2px' }}>
+                {selectedDeal.priceLocked ? '🔒 Зафиксировано: ' : '🏷️ Рабочая цена: '}
+                ${Math.round(selectedDeal.workingPrice).toLocaleString()}
+              </div>
+            )}
           </div>
           <a
             href={`/shakhmatka?highlightUnitId=${selectedDeal.unit.id}`}
@@ -1297,7 +1359,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
         <input
           type="text"
           className={styles.modalInput}
-          placeholder="Например: Кухонная техника в подарок"
+          placeholder="Например: Кухонная техника"
           value={giftDescription}
           onChange={e => setGiftDescription(e.target.value)}
         />
