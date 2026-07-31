@@ -1,0 +1,138 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: #f4f7fa; /* Светлый фон для всего приложения */
+  color: #1e293b;
+}
+
+.topNav {
+  height: 56px; /* Очень компактно */
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.navLeft {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  flex-shrink: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.navLeft::-webkit-scrollbar {
+  display: none;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.logoIcon {
+  font-size: 1.25rem;
+}
+
+.logoText {
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: #3b82f6;
+  letter-spacing: -0.5px;
+}
+
+.menuItems {
+  display: flex;
+  gap: 2px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: #64748b;
+  text-decoration: none;
+  transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.navLink:hover {
+  background-color: #f1f5f9;
+  color: #1e293b;
+}
+
+.active {
+  background-color: #eff6ff !important;
+  color: #3b82f6 !important;
+}
+
+.navRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.searchBox {
+  min-width: 0;
+}
+
+.searchBox input {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  width: 140px;
+  outline: none;
+  transition: width 0.2s;
+}
+
+.searchBox input:focus {
+  width: 200px;
+  background: #fff;
+  border-color: #3b82f6;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1;
+  padding: 20px; /* Уменьшили отступы */
+}

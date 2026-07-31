@@ -1,0 +1,438 @@
+.kanbanWrapper {
+  width: 100%;
+  min-height: 100vh;
+
+  padding: 24px;
+
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(59,130,246,.08),
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgba(139,92,246,.08),
+      transparent 40%
+    ),
+    #f8fafc;
+}
+
+.kanbanScroll {
+  overflow-x: auto;
+  margin-bottom: 16px;
+  margin-top: 16px;
+  padding-top: 8px;
+  transform: rotateX(180deg);
+}
+
+.kanbanBoardInner {
+  transform: rotateX(180deg);
+  padding-top: 4px;
+}
+
+
+.kanbanScroll::-webkit-scrollbar {
+  height: 12px;
+}
+
+.kanbanScroll::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-radius: 6px;
+}
+
+.kanbanScroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+  border: 2px solid #e2e8f0;
+}
+
+.kanbanScroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.kanbanBoardVertical {
+  display: flex;
+  flex-direction: row;
+  /* горизонтально */
+  gap: 16px;
+  align-items: flex-start;
+  min-width: max-content;
+}
+
+.verticalStage {
+  width: 350px;
+  min-width: 350px;
+
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(12px);
+
+  border-radius: 24px;
+
+  border: 1px solid rgba(255,255,255,0.5);
+
+  box-shadow:
+    0 8px 30px rgba(15,23,42,0.06),
+    0 2px 8px rgba(15,23,42,0.04);
+
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+
+  transition: all .25s ease;
+}
+
+.verticalStage:hover {
+  transform: translateY(-2px);
+}
+
+.groupStage {
+  background: #fdfaff;
+  border: 1px solid #ede9fe;
+}
+
+.callStage {
+}
+ 
+.lostStage {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  opacity: 0.85;
+}
+
+.childStage {
+  margin-top: 20px;
+  border-top: 3px solid #ddd6fe;
+}
+
+.stageHeader {
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-left: 6px solid #3b82f6;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.stageHeader {
+  padding: 18px;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  background: linear-gradient(
+    135deg,
+    rgba(255,255,255,0.9),
+    rgba(248,250,252,0.9)
+  );
+
+  border-bottom: 1px solid rgba(226,232,240,.8);
+
+  cursor: pointer;
+  transition: all .2s ease;
+}
+
+.stageMainInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.expandArrow {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.childLine {
+  color: #cbd5e1;
+}
+
+.stageMainInfo h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.countBadge {
+  min-width: 30px;
+  height: 30px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: #eff6ff;
+
+  color: #2563eb;
+
+  border-radius: 999px;
+
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+.stageStats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.revenue {
+  font-weight: 800;
+  color: #10b981;
+  font-size: 0.85rem;
+}
+
+.conversion {
+  font-weight: 700;
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.verticalCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: #fcfcfc;
+  min-height: 120px;
+}
+
+.dealCardVertical {
+  width: 100%;
+
+  background: white;
+
+  border-radius: 18px;
+
+  border: 1px solid #edf2f7;
+
+  padding: 16px;
+
+  box-shadow:
+    0 4px 12px rgba(0,0,0,.04);
+
+  transition: all .25s ease;
+
+  cursor: pointer;
+}
+
+.dealCardVertical:hover {
+  transform: translateY(-4px);
+
+  box-shadow:
+    0 16px 32px rgba(15,23,42,.12);
+
+  border-color: #93c5fd;
+}
+
+.dealCardVertical::before {
+  content: "";
+
+  display: block;
+
+  height: 4px;
+
+  margin: -16px -16px 14px;
+
+  background: linear-gradient(
+    90deg,
+    #e3e9f6,
+    #e7dff3
+  );
+}
+
+.cardHeaderSmall {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.unitTagSmall {
+  background: #eff6ff;
+  color: #3b82f6;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.dealIdSmall {
+  color: #94a3b8;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.clientNameSmall {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.priceTagSmall {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.emptyStage {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.childStages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.childStageCard {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 10px;
+}
+
+/* Стили модального окна и деталей сделки */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: white;
+
+  width: 900px;
+
+  max-width: 95%;
+
+  border-radius: 28px;
+
+  padding: 28px;
+
+  box-shadow:
+    0 30px 80px rgba(15,23,42,.2);
+
+  animation: modalFadeIn .25s ease;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 12px;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.closeBtn:hover {
+  color: #475569;
+}
+
+.modalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.infoSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.95rem;
+  color: #334155;
+}
+
+.infoSection p {
+  margin: 0;
+}
+
+.modalInput {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.modalInput:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.saveMortgageBtn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  width: 100%;
+}
+
+.saveMortgageBtn:hover {
+  background: #1d4ed8;
+}
+
+.saveMortgageBtn:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
+.quickCallBtn {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quickCallBtn:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

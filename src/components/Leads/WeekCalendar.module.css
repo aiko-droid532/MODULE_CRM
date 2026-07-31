@@ -1,0 +1,249 @@
+.calendarContainer {
+  background: white;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.calendarHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #f8fafc;
+}
+
+.navGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.navBtn {
+  background: white;
+  border: 1px solid #e2e8f0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.navBtn:hover {
+  background: #f1f5f9;
+}
+
+.currentWeekText {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 55px repeat(5, 1fr);
+  background: white;
+  overflow-x: auto;
+}
+
+.headerCell {
+  padding: 8px 4px;
+  text-align: center;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.headerCellFirst {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.dayName {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.5px;
+}
+
+.dayNumber {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #1e293b;
+  margin-top: 2px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.isToday {
+  background: #2563eb;
+  color: white !important;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+
+.timeColCell {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #64748b;
+  text-align: right;
+  padding-right: 8px;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 44px; /* Компактная высота */
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.gridCell {
+  border-right: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  height: 44px; /* Компактная высота */
+  position: relative;
+  padding: 1px;
+  transition: background-color 0.15s ease;
+}
+
+.gridCell:last-child {
+  border-right: none;
+}
+
+.todayCell {
+  background-color: rgba(37, 99, 235, 0.01);
+}
+
+/* Карточка приема (Слот занят) */
+.appointmentCard {
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  border-radius: 6px;
+  padding: 2px 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.appointmentCard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+}
+
+.status_BOOKED {
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+  color: #1e40af;
+}
+
+.status_COMPLETED {
+  background: #ecfdf5;
+  border-left: 3px solid #10b981;
+  color: #065f46;
+}
+
+.status_CANCELLED {
+  background: #fef2f2;
+  border-left: 3px solid #ef4444;
+  color: #991b1b;
+}
+
+.clientName {
+  font-weight: 700;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.1;
+}
+
+.slotTime {
+  font-size: 0.65rem;
+  opacity: 0.85;
+  font-weight: 600;
+}
+
+.phoneText {
+  font-size: 0.65rem;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: none; /* Скрываем телефон на узких слотах для компактности */
+}
+
+/* Кнопка записи (Слот свободен) */
+.freeSlotButton {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  font-size: 0.7rem;
+  font-weight: 700;
+  transition: all 0.12s ease;
+}
+
+.freeSlotButton:hover {
+  background: rgba(37, 99, 235, 0.05);
+  color: #2563eb;
+  border: 1px dashed rgba(37, 99, 235, 0.25);
+}
+
+.plusIcon {
+  margin-right: 2px;
+  font-size: 0.85rem;
+}
+
+/* Спиннер загрузки */
+.loadingOverlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: white;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 45px repeat(5, 80px); /* Горизонтальный скролл на мобилках */
+  }
+  .currentWeekText {
+    font-size: 0.85rem;
+  }
+  .calendarHeader {
+    padding: 8px 12px;
+  }
+  .navBtn {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+}

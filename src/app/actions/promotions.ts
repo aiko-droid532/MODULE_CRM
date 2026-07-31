@@ -1,0 +1,342 @@
+'use server';
+
+import { db as prisma, Prisma } from '@/lib/db';
+import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
+import { logAction } from '@/lib/logger';
+import { requireRole, canCreatePromotions, canApprovePromotions } from '@/lib/roles';
+import { formatEffectSummary } from '@/lib/promotionCalculator';
+
+// Таблицы: "Promotion" (сама акция) и "PromotionUnit" (связующая, аналог их flat_promotions).
+// Названия ТАБЛИЦ не меняем — только 4 поля в "Promotion" выровнены под БД сайта заказчика:
+// discount, discount_type ('percent' | 'amount'), condition_label, updated_at.
+
+function toCustomerDiscountType(effectValueType: string): 'percent' | 'amount' {
+  return effectValueType === 'PERCENT' ? 'percent' : 'amount';
+}
+
+// ── Подбор помещений по фильтру (шаг 1 конструктора) ────────────────────────
+// Возвращает только помещения, которые СЕЙЧАС не участвуют ни в одной активной
+// (или ещё не наступившей согласованной) акции — правило "не суммируются".
+export async function getFilteredUnitsForPromotion(filters: {
+  organizationId: string;
+  projectId?: string;
+  blockId?: string;
+  floorFrom?: number;
+  floorTo?: number;
+  areaMin?: number;
+  areaMax?: number;
+  type?: string;
+  rooms?: number;
+  excludePromotionId?: string; // при редактировании — не исключать помещения самой этой акции
+}) {
+  try {
+    const units: any[] = await prisma.$queryRaw`
+      SELECT
+        u.id, u.number, u.floor, u.area, u.price, u.rooms, u.type, u."pricePerSqmVAT",
+        b.number as "blockNumber", p.name as "projectName", p.id as "projectId"
+      FROM "Unit" u
+      JOIN "Block" b ON u."blockId" = b.id
+      JOIN "Project" p ON b."projectId" = p.id
+      WHERE u."organizationId" = ${filters.organizationId}
+        AND u.status::text = 'FREE'
+        ${filters.projectId ? Prisma.sql`AND p.id = ${filters.projectId}` : Prisma.empty}
+        ${filters.blockId ? Prisma.sql`AND b.id = ${filters.blockId}` : Prisma.empty}
+        ${filters.floorFrom != null ? Prisma.sql`AND u.floor >= ${filters.floorFrom}` : Prisma.empty}
+        ${filters.floorTo != null ? Prisma.sql`AND u.floor <= ${filters.floorTo}` : Prisma.empty}
+        ${filters.areaMin != null ? Prisma.sql`AND u.area >= ${filters.areaMin}` : Prisma.empty}
+        ${filters.areaMax != null ? Prisma.sql`AND u.area <= ${filters.areaMax}` : Prisma.empty}
+        ${filters.type ? Prisma.sql`AND u.type = ${filters.type}` : Prisma.empty}
+        ${filters.rooms != null ? Prisma.sql`AND u.rooms = ${filters.rooms}` : Prisma.empty}
+        AND NOT EXISTS (
+          SELECT 1 FROM "PromotionUnit" pu
+          JOIN "Promotion" pr ON pu."promotionId" = pr.id
+          WHERE pu."unitId" = u.id
+            AND pr.status IN ('DRAFT', 'ACTIVE')
+            AND pr."endAt" > NOW()
+            ${filters.excludePromotionId ? Prisma.sql`AND pr.id != ${filters.excludePromotionId}` : Prisma.empty}
+        )
+      ORDER BY p.name, b.number, u.floor, u.number
+      LIMIT 500
+    `;
+    return units;
+  } catch (error) {
+    console.error('getFilteredUnitsForPromotion error:', error);
+    return [];
+  }
+}
+
+// ── Создание черновика акции ─────────────────────────────────────────────────
+export async function createPromotionDraft(data: {
+  name: string;
+  effectType: string;
+  effectValueType: string;
+  effectValue: number;
+  nbgRate: number;
+  startAt: string;
+  endAt: string;
+  unitIds: string[];
+  organizationId: string;
+  createdById: string;
+}) {
+  try {
+    await requireRole(canCreatePromotions, 'создание акции');
+
+    if (!data.unitIds || data.unitIds.length === 0) {
+      return { success: false, error: 'Список помещений пуст' };
+    }
+
+    const id = crypto.randomUUID();
+    const conditionLabel = formatEffectSummary({
+      effectType: data.effectType as any,
+      effectValueType: data.effectValueType as any,
+      effectValue: data.effectValue,
+    });
+    const discountType = toCustomerDiscountType(data.effectValueType);
+
+    await prisma.$executeRaw`
+      INSERT INTO "Promotion" (
+        "id", "name", "effectType", "effectValueType", "effectValue", "nbgRate",
+        "startAt", "endAt", "status", "createdById", "organizationId",
+        discount, discount_type, condition_label,
+        "createdAt", updated_at
+      ) VALUES (
+        ${id}, ${data.name}, ${data.effectType}, ${data.effectValueType}, ${data.effectValue}, ${data.nbgRate},
+        ${new Date(data.startAt)}, ${new Date(data.endAt)}, 'DRAFT', ${data.createdById}, ${data.organizationId},
+        ${data.effectValue}, ${discountType}, ${conditionLabel},
+        NOW(), NOW()
+      )
+    `;
+
+    await Promise.all(
+      data.unitIds.map(unitId =>
+        prisma.$executeRaw`
+          INSERT INTO "PromotionUnit" ("id", "promotionId", "unitId", "createdAt")
+          VALUES (${crypto.randomUUID()}, ${id}, ${unitId}, NOW())
+        `
+      )
+    );
+
+    logAction('Создан черновик акции', { promotionId: id, name: data.name, units: data.unitIds.length });
+    revalidatePath('/pricing');
+    return { success: true, id };
+  } catch (error) {
+    console.error('createPromotionDraft error:', error);
+    return { success: false, error: 'SERVER_ERROR' };
+  }
+}
+
+// ── Список акций (реестр) ────────────────────────────────────────────────────
+export async function getPromotions(organizationId: string) {
+  noStore();
+  try {
+    const list: any[] = await prisma.$queryRaw`
+      SELECT
+        pr.*,
+        (SELECT COUNT(*)::int FROM "PromotionUnit" WHERE "promotionId" = pr.id) as "unitsCount",
+        cm.name as "createdByName",
+        am.name as "approvedByName"
+      FROM "Promotion" pr
+      LEFT JOIN "Manager" cm ON pr."createdById" = cm.id
+      LEFT JOIN "Manager" am ON pr."approvedById" = am.id
+      WHERE pr."organizationId" = ${organizationId}
+      ORDER BY pr."createdAt" DESC
+    `;
+    return list;
+  } catch (error) {
+    console.error('getPromotions error:', error);
+    return [];
+  }
+}
+
+// ── Детали одной акции + её список помещений ────────────────────────────────
+export async function getPromotionDetail(promotionId: string) {
+  noStore();
+  try {
+    const promos: any[] = await prisma.$queryRaw`
+      SELECT * FROM "Promotion" WHERE id = ${promotionId} LIMIT 1
+    `;
+    const promotion = promos[0];
+    if (!promotion) return null;
+
+    const units: any[] = await prisma.$queryRaw`
+      SELECT u.id, u.number, u.floor, u.area, u.price, u.rooms, u.type,
+        b.number as "blockNumber", p.name as "projectName"
+      FROM "PromotionUnit" pu
+      JOIN "Unit" u ON pu."unitId" = u.id
+      JOIN "Block" b ON u."blockId" = b.id
+      JOIN "Project" p ON b."projectId" = p.id
+      WHERE pu."promotionId" = ${promotionId}
+      ORDER BY p.name, b.number, u.floor, u.number
+    `;
+
+    return { ...promotion, units };
+  } catch (error) {
+    console.error('getPromotionDetail error:', error);
+    return null;
+  }
+}
+
+// ── Редактирование акции (только РОП/админ) ─────────────────────────────────
+export async function updatePromotionDraft(data: {
+  promotionId: string;
+  name: string;
+  effectType: string;
+  effectValueType: string;
+  effectValue: number;
+  nbgRate: number;
+  startAt: string;
+  endAt: string;
+  unitIds: string[];
+  organizationId: string;
+}) {
+  try {
+    await requireRole(canApprovePromotions, 'редактирование акции');
+
+    const conditionLabel = formatEffectSummary({
+      effectType: data.effectType as any,
+      effectValueType: data.effectValueType as any,
+      effectValue: data.effectValue,
+    });
+    const discountType = toCustomerDiscountType(data.effectValueType);
+
+    await prisma.$executeRaw`
+      UPDATE "Promotion"
+      SET "name" = ${data.name},
+          "effectType" = ${data.effectType},
+          "effectValueType" = ${data.effectValueType},
+          "effectValue" = ${data.effectValue},
+          "nbgRate" = ${data.nbgRate},
+          "startAt" = ${new Date(data.startAt)},
+          "endAt" = ${new Date(data.endAt)},
+          discount = ${data.effectValue},
+          discount_type = ${discountType},
+          condition_label = ${conditionLabel},
+          updated_at = NOW()
+      WHERE id = ${data.promotionId} AND "organizationId" = ${data.organizationId}
+    `;
+
+    await prisma.$executeRaw`DELETE FROM "PromotionUnit" WHERE "promotionId" = ${data.promotionId}`;
+    await Promise.all(
+      data.unitIds.map(unitId =>
+        prisma.$executeRaw`
+          INSERT INTO "PromotionUnit" ("id", "promotionId", "unitId", "createdAt")
+          VALUES (${crypto.randomUUID()}, ${data.promotionId}, ${unitId}, NOW())
+        `
+      )
+    );
+
+    logAction('Отредактирована акция', { promotionId: data.promotionId, units: data.unitIds.length });
+    revalidatePath('/pricing');
+    revalidatePath('/shakhmatka');
+    return { success: true };
+  } catch (error) {
+    console.error('updatePromotionDraft error:', error);
+    return { success: false, error: 'SERVER_ERROR' };
+  }
+}
+
+// ── Согласование акции: Draft → Active (только РОП/админ) ───────────────────
+export async function approvePromotion(promotionId: string, approvedById: string, organizationId: string) {
+  try {
+    await requireRole(canApprovePromotions, 'согласование акции');
+
+    await prisma.$executeRaw`
+      UPDATE "Promotion"
+      SET status = 'ACTIVE', "approvedById" = ${approvedById}, "approvedAt" = NOW(), updated_at = NOW()
+      WHERE id = ${promotionId} AND "organizationId" = ${organizationId} AND status = 'DRAFT'
+    `;
+
+    const promos: any[] = await prisma.$queryRaw`SELECT name FROM "Promotion" WHERE id = ${promotionId} LIMIT 1`;
+    const promoName = promos[0]?.name || '';
+    const units: any[] = await prisma.$queryRaw`SELECT "unitId" FROM "PromotionUnit" WHERE "promotionId" = ${promotionId}`;
+
+    await Promise.all(
+      units.map((u: any) =>
+        prisma.$executeRaw`
+          INSERT INTO "AuditLog" ("id", "action", "entityType", "entityId", "reason", "managerId", "organizationId", "createdAt")
+          VALUES (${crypto.randomUUID()}, 'PROMOTION_ADDED', 'Unit', ${u.unitId}, ${`Объект добавлен в акцию: ${promoName}`}, ${approvedById}, ${organizationId}, NOW())
+        `
+      )
+    );
+
+    revalidatePath('/pricing');
+    revalidatePath('/shakhmatka');
+    return { success: true };
+  } catch (error) {
+    console.error('approvePromotion error:', error);
+    return { success: false, error: 'SERVER_ERROR' };
+  }
+}
+
+// ── Отмена акции (только РОП/админ) ──────────────────────────────────────────
+export async function cancelPromotion(promotionId: string, organizationId: string) {
+  try {
+    await requireRole(canApprovePromotions, 'отмена акции');
+    await prisma.$executeRaw`
+      UPDATE "Promotion" SET status = 'CANCELLED', updated_at = NOW()
+      WHERE id = ${promotionId} AND "organizationId" = ${organizationId}
+    `;
+    revalidatePath('/pricing');
+    revalidatePath('/shakhmatka');
+    return { success: true };
+  } catch (error) {
+    console.error('cancelPromotion error:', error);
+    return { success: false, error: 'SERVER_ERROR' };
+  }
+}
+
+// ── Удаление акции (только РОП/админ, и только пока черновик) ──────────────
+export async function deletePromotion(promotionId: string, organizationId: string) {
+  try {
+    await requireRole(canApprovePromotions, 'удаление акции');
+    await prisma.$executeRaw`
+      DELETE FROM "Promotion" WHERE id = ${promotionId} AND "organizationId" = ${organizationId} AND status = 'DRAFT'
+    `;
+    revalidatePath('/pricing');
+    return { success: true };
+  } catch (error) {
+    console.error('deletePromotion error:', error);
+    return { success: false, error: 'SERVER_ERROR' };
+  }
+}
+
+// ── Карта активных акций по всем помещениям организации (для Шахматки) ──────
+export async function getLivePromotionsMap(organizationId: string) {
+  noStore();
+  try {
+    const rows: any[] = await prisma.$queryRaw`
+      SELECT pr.id as "promotionId", pr.name, pr."effectType", pr."effectValueType", pr."effectValue",
+        pr."nbgRate", pr."startAt", pr."endAt", pu."unitId"
+      FROM "Promotion" pr
+      JOIN "PromotionUnit" pu ON pu."promotionId" = pr.id
+      WHERE pr."organizationId" = ${organizationId}
+        AND pr.status = 'ACTIVE'
+        AND NOW() BETWEEN pr."startAt" AND pr."endAt"
+    `;
+    return rows;
+  } catch (error) {
+    console.error('getLivePromotionsMap error:', error);
+    return [];
+  }
+}
+
+// ── Активная акция для одного конкретного помещения (для карточки лида) ────
+export async function getLivePromotionForUnit(unitId: string) {
+  noStore();
+  try {
+    const rows: any[] = await prisma.$queryRaw`
+      SELECT pr.id as "promotionId", pr.name, pr."effectType", pr."effectValueType", pr."effectValue",
+        pr."nbgRate", pr."startAt", pr."endAt"
+      FROM "Promotion" pr
+      JOIN "PromotionUnit" pu ON pu."promotionId" = pr.id
+      WHERE pu."unitId" = ${unitId}
+        AND pr.status = 'ACTIVE'
+        AND NOW() BETWEEN pr."startAt" AND pr."endAt"
+      LIMIT 1
+    `;
+    return rows[0] || null;
+  } catch (error) {
+    console.error('getLivePromotionForUnit error:', error);
+    return null;
+  }
+}

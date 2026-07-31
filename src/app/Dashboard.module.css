@@ -1,0 +1,133 @@
+.dashboard h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.dashboard p {
+  color: var(--muted-foreground);
+  margin-bottom: 2.5rem;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.statCard {
+  padding: 1.5rem;
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+}
+
+.statHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.statIcon {
+  font-size: 1.25rem;
+}
+
+.statChange {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.positive {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.negative {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.statValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.statLabel {
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.mainGrid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 1.5rem;
+}
+
+.recentSales, .salesFunnel {
+  padding: 1.5rem;
+  border-radius: var(--radius);
+}
+
+.recentSales h2, .salesFunnel h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+.activityList {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.activityItem {
+  display: flex;
+  gap: 1rem;
+  position: relative;
+}
+
+.activityDot {
+  width: 10px;
+  height: 10px;
+  background: var(--primary);
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+  box-shadow: 0 0 10px var(--primary);
+}
+
+.activityText {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.875rem;
+}
+
+.activityText span {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  margin-top: 0.25rem;
+}
+
+.funnelChart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 0;
+}
+
+.funnelStep {
+  background: linear-gradient(90deg, var(--primary), rgba(99, 102, 241, 0.2));
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: right;
+  border-left: 4px solid var(--primary);
+}

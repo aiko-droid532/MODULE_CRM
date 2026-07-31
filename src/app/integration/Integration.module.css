@@ -1,0 +1,430 @@
+/* ===== ГЛОБАЛЬНЫЕ ===== */
+.page {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+  /* Шрифт — системный стек, читается везде */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;          /* базовый размер */
+  line-height: 1.5;
+  background-color: #f8fafc;
+  min-height: 100vh;
+}
+
+/* ===== ШАПКА ===== */
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+.headerLeft { display: flex; flex-direction: column; gap: 4px; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 12px;           /* было 11 */
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 14px;         /* чуть шире */
+  border-radius: 20px;
+  width: fit-content;
+  margin-bottom: 4px;
+}
+
+.title {
+  font-size: 28px;           /* было 26 */
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 14px;           /* было 13 */
+  color: #64748b;
+  margin: 0;
+}
+
+.refreshBtn {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #1e40af;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.refreshBtn:hover { background: #f1f5f9; border-color: #94a3b8; }
+
+/* ===== СТАТИСТИКА ===== */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.statCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.statCard:hover { border-color: #3b82f6; box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.1); }
+
+.statIcon { font-size: 24px; margin-bottom: 8px; }
+
+.statValue {
+  font-size: 36px;           /* было 32 */
+  font-weight: 800;          /* жирнее */
+  color: #1e3a8a;
+  line-height: 1.2;
+}
+
+.statLabel {
+  font-size: 13px;           /* было 12 */
+  color: #64748b;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.statSub {
+  font-size: 12px;           /* было 11 */
+  color: #94a3b8;
+  margin-top: 6px;
+}
+
+.progressBar {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #3b82f6);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+/* ===== ДВЕ КОЛОНКИ ===== */
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+/* ===== КАРТОЧКИ ===== */
+.card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.cardTitle {
+  font-size: 18px;           /* было 16 */
+  font-weight: 700;
+  color: #1e3a8a;
+  margin: 0 0 6px;
+}
+.cardDesc {
+  font-size: 14px;           /* было 13 */
+  color: #64748b;
+  margin: 0 0 16px;
+  line-height: 1.6;          /* больше воздуха */
+}
+
+/* ===== URL-БЛОК ===== */
+.urlBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.method {
+  background: #2563eb;
+  color: white;
+  font-size: 11px;           /* было 10 */
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.url {
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;           /* было 12 */
+  color: #1e293b;
+  font-weight: 600;
+  flex: 1;
+  word-break: break-all;
+}
+.copyBtn {
+  background: #ffffff;
+  border: 1px solid #94a3b8;
+  color: #1e40af;
+  padding: 5px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;           /* было 11 */
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.copyBtn:hover { background: #e2e8f0; }
+
+/* ===== ИНФО-БЛОК ===== */
+.infoBlock {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.infoRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;           /* было 6px */
+  border-bottom: 1px solid #e2e8f0;
+}
+.infoRow:last-child { border-bottom: none; }
+.infoKey {
+  font-size: 12px;           /* было 11 */
+  color: #475569;
+  min-width: 90px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-top: 1px;
+}
+.infoVal {
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;           /* было 11 */
+  color: #1e3a8a;
+  font-weight: 600;
+}
+
+/* ===== ТЕСТОВАЯ СЕКЦИЯ ===== */
+.testSection { margin-top: 14px; }
+.testBtn {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  border: none;
+  color: white;
+  padding: 12px 20px;        /* было 11px */
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;           /* было 13 */
+  font-weight: 600;
+  transition: all 0.2s;
+  width: 100%;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+}
+.testBtn:hover { opacity: 0.95; transform: translateY(-1px); }
+.testBtn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.testResult {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;           /* было 12 */
+  font-weight: 600;
+}
+.ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+.err { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+
+/* ===== СТАТУСЫ ЮНИТОВ ===== */
+.unitStatuses { margin-top: 12px; }
+.unitStatusTitle {
+  font-size: 12px;           /* было 11 */
+  color: #64748b;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+.unitStatusRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.unitStatusRow:last-child { border-bottom: none; }
+.unitDot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.unitStatusName {
+  font-size: 14px;           /* было 13 */
+  color: #334155;
+  font-weight: 500;
+  flex: 1;
+}
+.unitStatusCount {
+  font-size: 15px;           /* было 14 */
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* ===== ПУСТОЕ СОСТОЯНИЕ ===== */
+.emptyState {
+  text-align: center;
+  padding: 32px 20px;
+  color: #64748b;
+  font-size: 14px;           /* было 13 */
+  line-height: 1.6;
+}
+.emptyIcon { font-size: 40px; margin-bottom: 10px; }
+.emptyHint {
+  font-size: 13px;           /* было 12 */
+  color: #94a3b8;
+  margin-top: 6px;
+}
+
+/* ===== ТАБЛИЦА ЛОГОВ ===== */
+.logsTable { margin-top: 8px; }
+.logsHeader {
+  display: grid;
+  grid-template-columns: 90px 140px 110px 130px 130px 1fr;
+  gap: 8px;
+  padding: 12px 12px;        /* было 10px */
+  background: #f1f5f9;
+  border-radius: 6px 6px 0 0;
+  font-size: 12px;           /* было 11 */
+  color: #475569;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.logRow {
+  display: grid;
+  grid-template-columns: 90px 140px 110px 130px 130px 1fr;
+  gap: 8px;
+  padding: 14px 12px;        /* было 12px */
+  border-bottom: 1px solid #f1f5f9;
+  align-items: center;
+  font-size: 13px;           /* было 12 */
+  transition: background 0.15s;
+}
+.logRow:last-child { border-bottom: none; }
+.logRow:hover { background: #f8fafc; }
+
+.logBadge {
+  display: inline-block;
+  padding: 3px 10px;         /* чуть шире */
+  border-radius: 10px;
+  font-size: 11px;           /* было 10 */
+  font-weight: 700;
+  color: white;
+}
+.logType {
+  color: #1e40af;
+  font-weight: 600;
+  font-size: 13px;           /* было 12 */
+}
+.logLeadId {
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;           /* было 11 */
+  color: #64748b;
+}
+.logIp {
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;           /* было 11 */
+  color: #64748b;
+}
+.logDate {
+  font-size: 13px;           /* было 12 */
+  color: #475569;
+}
+.logError {
+  font-size: 13px;           /* было 12 */
+  color: #dc2626;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== ИНСТРУКЦИИ ===== */
+.instructionBlock { display: flex; flex-direction: column; gap: 20px; margin-top: 4px; }
+.instructionStep {
+  display: flex;
+  gap: 16px;
+  padding: 16px 20px;        /* больше внутри */
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.stepNum {
+  width: 30px;              /* было 28 */
+  height: 30px;
+  background: #2563eb;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;           /* было 13 */
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+.stepContent { flex: 1; }
+.stepContent strong {
+  font-size: 15px;           /* было 14 */
+  color: #1e3a8a;
+  display: block;
+  margin-bottom: 4px;
+}
+.stepContent p {
+  font-size: 13px;           /* было 12 */
+  color: #64748b;
+  margin: 4px 0 8px;
+  line-height: 1.6;
+}
+.codeBlock {
+  display: block;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 14px;            /* было 12px */
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;           /* было 11 */
+  color: #38bdf8;
+  white-space: pre;
+  overflow-x: auto;
+  line-height: 1.6;
+}
+
+/* ===== АДАПТИВ ===== */
+@media (max-width: 1100px) {
+  .statsGrid { grid-template-columns: repeat(2, 1fr); }
+  .twoCol { grid-template-columns: 1fr; }
+  .logsHeader, .logRow {
+    grid-template-columns: 70px 120px 1fr;
+    font-size: 13px;        /* явно задаём, чтобы не уменьшалось */
+  }
+  .logsHeader span:nth-child(4),
+  .logsHeader span:nth-child(5),
+  .logRow span:nth-child(4),
+  .logRow span:nth-child(5) {
+    display: none;
+  }
+}
