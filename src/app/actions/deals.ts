@@ -138,7 +138,11 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
     await requireRole(canManageDeals, 'изменение статуса сделки');
     // 1. Проверяем бизнес-правила переходов по воронке
     const deals: any[] = await prisma.$queryRaw`
-      SELECT "unitId", "priceLocked", "catalogPriceUSD", "basePriceUSD", "totalAmount" FROM "Deal" WHERE "id" = ${dealId} LIMIT 1
+      SELECT d."unitId", d."priceLocked", d."catalogPriceUSD", d."basePriceUSD", d."totalAmount",
+        u.price as "unitPrice", u.area as "unitArea"
+      FROM "Deal" d
+      LEFT JOIN "Unit" u ON d."unitId" = u.id
+      WHERE d."id" = ${dealId} LIMIT 1
     `;
     const deal = deals[0];
 
@@ -197,11 +201,42 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
     // 2.3 Снапшот цены: сделка дошла до "Договор" — цена фиксируется и больше не откатывается
     // при истечении акции. Дальше менять её сможет только РОП/админ (см. saveInstallmentPlanAction/savePaymentScheduleAction).
     if (status === 'DEAL' && deal && !deal.priceLocked) {
-      await prisma.$executeRaw`
-        UPDATE "Deal"
-        SET "priceLocked" = true, "priceLockedAt" = NOW(), "priceLockedById" = ${mgrId}, "updatedAt" = NOW()
-        WHERE "id" = ${dealId}
-      `;
+      const hasComputedAmount = deal.totalAmount != null && Number(deal.totalAmount) > 0;
+
+      if (!hasComputedAmount && deal.unitId && deal.unitPrice != null) {
+        // По сделке ещё ни разу не был сохранён расчёт (не считали в калькуляторе рассрочки) —
+        // фиксировать в снапшот нечего, если не зафиксировать ТЕКУЩУЮ эффективную цену объекта
+        // (с учётом акции, если она сейчас активна) прямо сейчас, при входе в "Договор".
+        const promoRows: any[] = await prisma.$queryRaw`
+          SELECT pr."effectType", pr."effectValueType", pr."effectValue", pr."nbgRate"
+          FROM "Promotion" pr
+          JOIN "PromotionUnit" pu ON pu."promotionId" = pr.id
+          WHERE pu."unitId" = ${deal.unitId}
+            AND pr.status = 'ACTIVE'
+            AND NOW() BETWEEN pr."startAt" AND pr."endAt"
+          ORDER BY pr."startAt" ASC
+          LIMIT 1
+        `;
+        const promo = promoRows[0];
+        const effectivePrice = promo
+          ? calcPromoPrice(deal.unitPrice, deal.unitArea, promo, promo.nbgRate).promoPriceUSD
+          : deal.unitPrice;
+
+        await prisma.$executeRaw`
+          UPDATE "Deal"
+          SET "totalAmount" = ${effectivePrice},
+              "basePriceUSD" = ${effectivePrice},
+              "catalogPriceUSD" = ${deal.unitPrice},
+              "priceLocked" = true, "priceLockedAt" = NOW(), "priceLockedById" = ${mgrId}, "updatedAt" = NOW()
+          WHERE "id" = ${dealId}
+        `;
+      } else {
+        await prisma.$executeRaw`
+          UPDATE "Deal"
+          SET "priceLocked" = true, "priceLockedAt" = NOW(), "priceLockedById" = ${mgrId}, "updatedAt" = NOW()
+          WHERE "id" = ${dealId}
+        `;
+      }
     }
 
     // 2.5 Синхронизация статуса лида со статусом сделки (раздел 3 ТЗ)
