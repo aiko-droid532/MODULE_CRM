@@ -136,6 +136,12 @@ export default function PricingClient({ projects, initialPromotions, organizatio
 
   const [activeTab, setActiveTab] = useState<'promotions' | 'mic' | 'loyalty'>('promotions');
   const [promotions, setPromotions] = useState(initialPromotions);
+  // router.refresh() после создания/согласования/отмены акции перезапрашивает данные на
+  // сервере и обновляет initialPromotions, но useState выше берёт его только при первом
+  // монтировании — без этого эффекта список не обновится без ручной перезагрузки страницы.
+  useEffect(() => {
+    setPromotions(initialPromotions);
+  }, [initialPromotions]);
   // Статус "Истекла" — вычисляемый (не хранится в БД), поэтому без тика по таймеру
   // бейдж не обновится сам, пока не перезагрузить страницу — досчитываем каждые 30с.
   const [, setTick] = useState(0);
