@@ -139,7 +139,7 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
     // 1. Проверяем бизнес-правила переходов по воронке
     const deals: any[] = await prisma.$queryRaw`
       SELECT d."unitId", d."priceLocked", d."catalogPriceUSD", d."basePriceUSD", d."totalAmount",
-        u.price as "unitPrice", u.area as "unitArea"
+        u.price as "unitPrice", u.area as "unitArea", u.status::text as "unitStatus"
       FROM "Deal" d
       LEFT JOIN "Unit" u ON d."unitId" = u.id
       WHERE d."id" = ${dealId} LIMIT 1
@@ -237,6 +237,17 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
           WHERE "id" = ${dealId}
         `;
       }
+    }
+
+    // 2.4 Страховочная синхронизация статуса помещения: сделка дошла до "Договор", а помещение
+    // (например, если сделку заводили не через бронь/createDeal, а прямо через график в карточке
+    // лида) всё ещё числится свободным — помечаем занятым, чтобы его нельзя было одновременно
+    // забронировать или добавить в другую сделку.
+    if (status === 'DEAL' && deal && deal.unitId && deal.unitStatus === 'FREE') {
+      await prisma.$executeRaw`
+        UPDATE "Unit" SET "status" = 'RESERVATION_PAID'::"UnitStatus", "updatedAt" = NOW()
+        WHERE "id" = ${deal.unitId}
+      `;
     }
 
     // 2.5 Синхронизация статуса лида со статусом сделки (раздел 3 ТЗ)
