@@ -446,6 +446,21 @@
   z-index: 2;
 }
 
+/* Помещение с зафиксированной ценой (снапшот на "Договоре") — независимо от статуса акции */
+.dealLockBadge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: linear-gradient(135deg, #2563eb, #1e3a8a);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+  z-index: 2;
+}
+
 /* Когда на объекте одновременно акция и VIP — VIP уходит ниже, чтобы не перекрываться */
 .vipBadgeShifted {
   top: 26px !important;

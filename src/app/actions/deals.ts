@@ -692,6 +692,27 @@ export async function searchUnits(organizationId: string, query: string) {
   }
 }
 
+// Карта помещений с зафиксированной ценой (снапшот на "Договоре") — для отметки в Шахматке.
+// Показывает, что объект сейчас проходит по сделке с закреплённой ценой (и по какой акции),
+// НЕЗАВИСИМО от того, действует ли ещё сама акция — снапшот не зависит от срока акции.
+export async function getLockedUnitDealsMap(organizationId: string) {
+  try {
+    const rows: any[] = await prisma.$queryRaw`
+      SELECT d."unitId", d."totalAmount", pr.name as "promotionName", l.name as "leadName"
+      FROM "Deal" d
+      LEFT JOIN "Promotion" pr ON pr.id = d."promotionId"
+      LEFT JOIN "Lead" l ON l.id = d."leadId"
+      WHERE d."organizationId" = ${organizationId}
+        AND d."priceLocked" = true
+        AND d.status NOT IN ('CANCELLED', 'FAILED')
+    `;
+    return rows;
+  } catch (error) {
+    console.error('getLockedUnitDealsMap error:', error);
+    return [];
+  }
+}
+
 // Активные сделки по конкретному объекту — для селектора в калькуляторе рассрочки (карточка объекта)
 export async function getActiveDealsForUnit(unitId: string, organizationId: string) {
   try {

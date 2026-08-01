@@ -6,15 +6,17 @@ import { createDemoProject, getPriceHistory, createUnit, updateUnit, deleteUnit,
 import { createBooking, releaseBooking, addToWaitingListAction, removeFromWaitingListAction, getWaitingListAction } from '@/app/actions/booking';
 import { getExchangeRate } from '@/app/actions/exchange';
 import { importUnitsFromExcel } from '@/app/actions/import';
-import { getActiveDealsForUnit, saveInstallmentPlanAction } from '@/app/actions/deals';
+import { getActiveDealsForUnit, saveInstallmentPlanAction, getLockedUnitDealsMap } from '@/app/actions/deals';
 import { useRouter } from 'next/navigation';
 import LeadDossier from '@/components/Leads/LeadDossier';
 import * as XLSX from 'xlsx';
 import UnitLayoutSvg from '@/components/Shakhmatka/UnitLayoutSvg';
 import { getLivePromotionsMap } from '@/app/actions/promotions';
+import { getApplicableCumulativeDiscount } from '@/app/actions/loyalty';
 import { calcPromoPrice, formatEffectSummary, formatGeorgiaDateTime, type PromotionEffectType } from '@/lib/promotionCalculator';
 import {
   calculateInstallmentPlan,
+  applyCumulativeDiscount,
   applyStandardPreset,
   calcBasePrice,
   calcFinalPrice,
@@ -29,21 +31,28 @@ import {
   type InstallmentResult,
 } from '@/lib/installmentCalculator';
 
-import { canManageUnits, canManagePrices, canManageDeals, isReadOnly, UserRole } from '@/lib/roles';
+import { canManageUnits, canManagePrices, canManageDeals, isReadOnly, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel, UserRole } from '@/lib/roles';
 
 interface ShakhmatkaClientProps {
   projects: any[];
   leads: any[];
   organizationId: string;
   userRole?: string;
+  managerId?: string;
 }
 
-export default function ShakhmatkaClient({ projects: initialProjects, leads, organizationId, userRole = 'manager' }: ShakhmatkaClientProps) {
+export default function ShakhmatkaClient({ projects: initialProjects, leads, organizationId, userRole = 'manager', managerId = '' }: ShakhmatkaClientProps) {
   const role = userRole as UserRole;
   const canUnits = canManageUnits(role);
   const canPrices = canManagePrices(role);
   const canDeals = canManageDeals(role);
   const readOnly = isReadOnly(role);
+
+  // Дата/время акции форматируются в локальном часовом поясе браузера смотрящего
+  // (см. formatGeorgiaDateTime) — на сервере при SSR его нет, поэтому первый рендер
+  // до монтирования в браузере не должен пытаться его показывать (иначе hydration mismatch).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const clients = useMemo(() => {
     return leads.filter(l => l.status === 'CONVERTED' || (l.type && l.type !== 'LEAD'));
   }, [leads]);
@@ -72,12 +81,22 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   // Опрашивается периодически (не только при монтировании), чтобы бейдж/цена сами
   // "гасли" по факту окончания акции, без ручной перезагрузки страницы.
   const [promoMap, setPromoMap] = useState<Record<string, any>>({});
+  // Карта объектов с зафиксированной ценой (снапшот на "Договоре") — держится, даже когда
+  // сама акция уже истекла, поэтому опрашивается отдельно и не зависит от promoMap.
+  const [lockedDealMap, setLockedDealMap] = useState<Record<string, any>>({});
   useEffect(() => {
     async function loadPromotions() {
       const rows = await getLivePromotionsMap(organizationId);
+      // rows отсортированы по startAt ASC — при пересечении акций на одном
+      // помещении оставляем первую (самую раннюю), не перезаписываем более поздней.
       const map: Record<string, any> = {};
-      rows.forEach((r: any) => { map[r.unitId] = r; });
+      rows.forEach((r: any) => { if (!map[r.unitId]) map[r.unitId] = r; });
       setPromoMap(map);
+
+      const lockedRows = await getLockedUnitDealsMap(organizationId);
+      const lockedMap: Record<string, any> = {};
+      lockedRows.forEach((r: any) => { lockedMap[r.unitId] = r; });
+      setLockedDealMap(lockedMap);
     }
     loadPromotions();
     const interval = setInterval(loadPromotions, 30000);
@@ -378,6 +397,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const [calcResult, setCalcResult] = useState<InstallmentResult | null>(null);
   const [calcSaving, setCalcSaving] = useState(false);
   const [calcFullPaymentDate, setCalcFullPaymentDate] = useState('');
+  const [calcCumulativeDiscount, setCalcCumulativeDiscount] = useState<any>(null);
 
   useEffect(() => {
     async function loadUnitDeals() {
@@ -403,6 +423,20 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     loadUnitDeals();
   }, [selectedUnit, organizationId]);
 
+  // Накопительная скидка клиента — зависит от того, какая сделка (какой клиент) выбрана в блоке "Объект"
+  useEffect(() => {
+    async function loadCumulative() {
+      const deal = unitDeals.find((d: any) => d.id === calcDealId);
+      if (deal?.leadId) {
+        const cumulative = await getApplicableCumulativeDiscount(deal.leadId, organizationId);
+        setCalcCumulativeDiscount(cumulative);
+      } else {
+        setCalcCumulativeDiscount(null);
+      }
+    }
+    loadCumulative();
+  }, [calcDealId, unitDeals, organizationId]);
+
   // Дата сдачи: своя у квартиры, иначе — тянем от даты сдачи ЖК
   const calcEffectiveDeliveryDate: string = selectedUnit
     ? (toDateInputValue(selectedUnit.deliveryDate) || (() => {
@@ -424,6 +458,23 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const calcLiveFinalPrice: number = selectedUnit
     ? calcFinalPrice(selectedUnit.area, calcUnitEffectivePricePerSqm, calcDiscountApplyType, calcDiscountAmount)
     : 0;
+  // Накопительная скидка — применяется автоматически поверх итоговой цены
+  const calcCumulativePercent = calcCumulativeDiscount?.discountPercent || 0;
+  const calcFinalPriceWithCumulative = Math.round((calcLiveFinalPrice * (1 - calcCumulativePercent / 100)) * 100) / 100;
+  // Индивидуальная скидка — пороги согласования по ролям.
+  // Порог сверяется по СУММАРНОМУ эффекту: акция + индивидуальная + накопительная
+  const calcBasePriceForDiscount = selectedUnit ? calcBasePrice(selectedUnit.area, calcUnitEffectivePricePerSqm) : 0;
+  // Эффект самой акции — разница между каталожной ценой и ценой после акции (до индивидуальной скидки)
+  const calcPromoDiscountPercent = selectedUnit && selectedUnit.price > 0
+    ? Math.round(((selectedUnit.price - calcBasePriceForDiscount) / selectedUnit.price) * 1000) / 10
+    : 0;
+  const calcDiscountPercent = calcBasePriceForDiscount > 0
+    ? Math.round(((calcBasePriceForDiscount - calcLiveFinalPrice) / calcBasePriceForDiscount) * 1000) / 10
+    : 0;
+  const calcCombinedDiscountPercent = Math.round((calcPromoDiscountPercent + calcDiscountPercent + calcCumulativePercent) * 10) / 10;
+  // Менеджер: любая скидка уходит на согласование РОП, а не сохраняется напрямую —
+  // порог его роли не должен блокировать кнопку (иначе отправить на согласование нечем).
+  const calcDiscountAllowed = role === 'manager' ? true : canApplyDiscountPercent(role, calcCombinedDiscountPercent);
   const calcAutoDates = computeAutoScheduleDates(calcFirstPaymentDate, calcEffectiveDeliveryDate);
   const calcMonthsCount = Math.max(1, calcPeriodsCount(calcAutoDates.scheduleStartDate, calcAutoDates.scheduleEndDate, calcPeriodicity));
 
@@ -517,7 +568,14 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
       deliveryDate: calcEffectiveDeliveryDate,
       lastPaymentAmount: derivedLastAmount,
     };
-    setCalcResult(calculateInstallmentPlan(input));
+    const rawResult = calculateInstallmentPlan(input);
+    // Накопительная скидка применяется здесь же, до показа результата на экране,
+    // чтобы то, что видит менеджер, и то, что уйдёт в БД при сохранении, совпадали.
+    setCalcResult(
+      calcCumulativePercent > 0
+        ? applyCumulativeDiscount(rawResult, calcCumulativePercent, calcNbgRate)
+        : rawResult
+    );
   }
 
   function handleApplyStandardPreset() {
@@ -542,11 +600,17 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     }
     setCalcSaving(true);
     try {
+      // calcResult уже включает накопительную скидку (см. handleRunCalculation) —
+      // сохраняем ровно то, что показано на экране, без повторного пересчёта.
+      const lastRow = calcResult.schedule[calcResult.schedule.length - 1];
       const res = await saveInstallmentPlanAction({
         dealId: calcDealId,
         scheduleType: calcScheduleType,
         periodicity: calcPeriodicity,
         basePriceUSD: calcResult.basePriceUSD,
+        // Каталожная цена (до акции) — нужна серверу, чтобы порог согласования считался
+        // по СУММАРНОМУ эффекту (акция + индивидуальная + накопительная), а не только по индивидуальной
+        catalogPriceUSD: selectedUnit?.price || 0,
         discountApplyType: calcDiscountApplyType,
         discountAmountUSD: calcResult.discountTotalUSD,
         finalPriceUSD: calcResult.finalPriceUSD,
@@ -557,15 +621,18 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         scheduleEndDate: calcResult.scheduleEndDate,
         recurringAmountUSD: derivedRecurringAmount,
         lastPaymentDate: calcResult.lastPaymentDate,
-        lastPaymentAmountUSD: derivedLastAmount,
+        lastPaymentAmountUSD: lastRow?.amountUSD ?? 0,
         lastPaymentPercent: calcLastPercent,
         installmentComment: calcComment,
         customScheduleFileUrl: calcCustomFileUrl,
-        schedule: calcResult.schedule.map(r => ({ date: r.date, amountUSD: r.amountUSD, amountGEL: r.amountGEL })),
+        schedule: calcResult.schedule,
         organizationId,
+        initiatorId: managerId,
       });
       if (res.success) {
-        alert('График рассрочки сохранён и привязан к сделке.');
+        alert((res as any).pendingApproval
+          ? 'Скидка отправлена на согласование руководителю ОП. График будет сохранён после подтверждения.'
+          : 'График рассрочки сохранён и привязан к сделке.');
       } else {
         alert('Ошибка сохранения: ' + (res.error || ''));
       }
@@ -600,6 +667,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
       installmentComment: 'Полная оплата (объект сдан)',
       schedule: [{ date: calcFullPaymentDate, amountUSD: selectedUnit.price, amountGEL: Math.round(selectedUnit.price * calcNbgRate) }],
       organizationId,
+      initiatorId: managerId,
     }).then(res => {
       alert(res.success ? 'Платёж сохранён.' : 'Ошибка: ' + (res.error || ''));
     }).finally(() => setCalcSaving(false));
@@ -1384,7 +1452,16 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                               ) : (
                                 <>${Math.round(unit.price).toLocaleString()}<span className={styles.gelPrice}>{Math.round(unit.price * parseFloat(exchangeRate)).toLocaleString()} ₾</span></>
                               )
-                            ) : getStatusName(unit.status)}
+                            ) : (
+                              <>
+                                {getStatusName(unit.status)}
+                                {lockedDealMap[unit.id] && (
+                                  <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#1e3a8a', marginTop: '2px' }}>
+                                    Договор: ${Math.round(lockedDealMap[unit.id].totalAmount).toLocaleString()}
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
                           {unit.status === 'SOFT_BOOKED' && (
                             <div className={`${styles.timerBadge} ${promoMap[unit.id] ? styles.vipBadgeShifted : ''}`}>
@@ -1394,6 +1471,14 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                           {promoMap[unit.id] && (
                             <div className={styles.promoBadge} title={promoMap[unit.id].name}>
                               АКЦИЯ
+                            </div>
+                          )}
+                          {lockedDealMap[unit.id] && (
+                            <div
+                              className={styles.dealLockBadge}
+                              title={`Клиент: ${lockedDealMap[unit.id].leadName || '—'}${lockedDealMap[unit.id].promotionName ? ` · Акция: ${lockedDealMap[unit.id].promotionName}` : ''}`}
+                            >
+                              ДОГОВОР
                             </div>
                           )}
                           {unit.price > 300000 && unit.status === 'FREE' && (
@@ -1504,11 +1589,24 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                               {formatEffectSummary(promo)} → ${pr.promoPriceUSD.toLocaleString()} ({pr.promoPriceGEL.toLocaleString()} ₾)
                             </span>
                             <div style={{ fontSize: '0.7rem', color: '#991b1b', marginTop: '2px' }}>
-                              До {formatGeorgiaDateTime(promo.endAt)}
+                              До {mounted ? formatGeorgiaDateTime(promo.endAt) : '…'}
                             </div>
                           </div>
                         );
                       })()}
+                      {lockedDealMap[selectedUnit.id] && (
+                        <div className={styles.paramItem} style={{ gridColumn: 'span 2', background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                          <span className={styles.paramLabel} style={{ color: '#1e3a8a' }}>
+                             В договоре{lockedDealMap[selectedUnit.id].promotionName ? ` (акция «${lockedDealMap[selectedUnit.id].promotionName}»)` : ''}
+                          </span>
+                          <span className={styles.paramValue} style={{ color: '#1e3a8a' }}>
+                            ${Math.round(lockedDealMap[selectedUnit.id].totalAmount).toLocaleString()}
+                          </span>
+                          <div style={{ fontSize: '0.7rem', color: '#1e40af', marginTop: '2px' }}>
+                            Цена зафиксирована — клиент: {lockedDealMap[selectedUnit.id].leadName || '—'}
+                          </div>
+                        </div>
+                      )}
                       {selectedUnit.viewType && (
                         <div className={styles.paramItem} style={{ gridColumn: 'span 2' }}><span className={styles.paramLabel}>Вид из окон</span><span className={styles.paramValue}>{selectedUnit.viewType}</span></div>
                       )}
@@ -2009,7 +2107,17 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                         <div>
                           <strong style={{ fontSize: '0.85rem', color: '#475569', display: 'block', marginBottom: '8px' }}>Начальная цена</strong>
                           <div className={styles.paramGrid}>
-                            <div className={styles.paramItem}><span className={styles.paramLabel}>Начальная цена $ {calcActivePromo && <em style={{ color: "#dc2626", fontStyle: "normal", fontSize: "0.65rem" }}>(с учётом акции)</em>}</span><span className={styles.paramValue}>${calcBasePrice(selectedUnit.area, calcUnitEffectivePricePerSqm).toLocaleString()}</span></div>
+                            <div className={styles.paramItem}>
+                              <span className={styles.paramLabel}>Начальная цена $ {calcActivePromo && <em style={{ color: "#dc2626", fontStyle: "normal", fontSize: "0.65rem" }}>(с учётом акции)</em>}</span>
+                              <span className={styles.paramValue}>
+                                {calcActivePromo && (
+                                  <span style={{ textDecoration: 'line-through', color: '#94a3b8', fontWeight: 500, marginRight: '6px', fontSize: '0.85em' }}>
+                                    ${selectedUnit.price.toLocaleString()}
+                                  </span>
+                                )}
+                                ${calcBasePrice(selectedUnit.area, calcUnitEffectivePricePerSqm).toLocaleString()}
+                              </span>
+                            </div>
                             <div className={styles.paramItem}><span className={styles.paramLabel}>Начальная цена за м² $</span><span className={styles.paramValue}>${Math.round(calcUnitEffectivePricePerSqm).toLocaleString()}</span></div>
                             <div className={styles.paramItem}><span className={styles.paramLabel}>Начальная цена ₾</span><span className={styles.paramValue}>{Math.round(calcBasePrice(selectedUnit.area, calcUnitEffectivePricePerSqm) * calcNbgRate).toLocaleString()} ₾</span></div>
                             <div className={styles.paramItem}><span className={styles.paramLabel}>Начальная цена за м² ₾</span><span className={styles.paramValue}>{Math.round(calcUnitEffectivePricePerSqm * calcNbgRate).toLocaleString()} ₾</span></div>
@@ -2039,6 +2147,25 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                           <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#475569' }}>
                             Итоговая цена (с учётом скидки): <strong>${calcLiveFinalPrice.toLocaleString()}</strong>
                           </div>
+                          {calcCumulativeDiscount && (
+                            <div style={{ marginTop: '8px', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>
+                               Накопительная скидка клиента: {calcCumulativePercent}% (покупок ранее: {calcCumulativeDiscount.purchaseCount}) — применяется автоматически
+                            </div>
+                          )}
+                          {calcCombinedDiscountPercent > 0 && (
+                            <div style={{
+                              marginTop: '8px', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600,
+                              background: role === 'manager' ? '#fffbeb' : (calcDiscountAllowed ? '#f0fdf4' : '#fef2f2'),
+                              color: role === 'manager' ? '#b45309' : (calcDiscountAllowed ? '#166534' : '#dc2626'),
+                              border: `1px solid ${role === 'manager' ? '#fde68a' : (calcDiscountAllowed ? '#bbf7d0' : '#fecaca')}`
+                            }}>
+                              Суммарная скидка {calcCombinedDiscountPercent}% (акция {calcPromoDiscountPercent}% + индивидуальная {calcDiscountPercent}% + накопительная {calcCumulativePercent}%){role === 'manager'
+                                ? ' — будет отправлена на согласование руководителю ОП.'
+                                : calcDiscountAllowed
+                                  ? ' — в пределах вашего порога согласования.'
+                                  : ` — превышает ваш порог (до ${getMaxDiscountPercent(role)}%). Требуется согласование: ${getRequiredApproverLabel(calcCombinedDiscountPercent)}.`}
+                            </div>
+                          )}
                         </div>
 
                         {/* Блок: График платежей — 3 колонки × 3 строки: Дата | Сумма $ | % */}
@@ -2145,7 +2272,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                               <button type="button" onClick={() => exportScheduleCsv(calcResult.schedule, 'ENG', selectedUnit.number)} style={{ padding: '8px 12px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>Schedule (ENG)</button>
                               <button type="button" onClick={() => exportScheduleCsv(calcResult.schedule, 'GEO', selectedUnit.number)} style={{ padding: '8px 12px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>გრაფიკი (GEO)</button>
                               {canDeals && !readOnly && (
-                                <button type="button" disabled={!calcResult.isValid || !calcDealId || calcSaving} onClick={handleSaveInstallmentPlan} className={styles.modalSaveBtn} style={{ marginLeft: 'auto' }}>
+                                <button type="button" disabled={!calcResult.isValid || !calcDealId || calcSaving || !calcDiscountAllowed} onClick={handleSaveInstallmentPlan} className={styles.modalSaveBtn} style={{ marginLeft: 'auto' }}>
                                   {calcSaving ? 'Сохранение...' : 'Сохранить график к сделке'}
                                 </button>
                               )}

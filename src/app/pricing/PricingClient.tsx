@@ -97,18 +97,6 @@ export default function PricingClient({ projects, initialPromotions, organizatio
     getCumulativeDiscountTiers(organizationId).then(setLoyaltyTiers);
   }, [organizationId]);
 
-  // ── Аналитика по акциям (раздел 7 ТЗ) ────────────────────────────────────
-  const [promoAnalytics, setPromoAnalytics] = useState<any[]>([]);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  useEffect(() => {
-    if (activeTab !== 'analytics') return;
-    setAnalyticsLoading(true);
-    getPromotionAnalytics(organizationId).then(rows => {
-      setPromoAnalytics(rows);
-      setAnalyticsLoading(false);
-    });
-  }, [activeTab, organizationId]);
-
   function handleEditLoyaltyTier(t: any) {
     setEditingLoyaltyId(t.id);
     setLoyaltyMinPurchases(t.minPurchases);
@@ -155,6 +143,19 @@ export default function PricingClient({ projects, initialPromotions, organizatio
   useEffect(() => {
     setPromotions(initialPromotions);
   }, [initialPromotions]);
+
+  // ── Аналитика по акциям (раздел 7 ТЗ) ────────────────────────────────────
+  const [promoAnalytics, setPromoAnalytics] = useState<any[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  useEffect(() => {
+    if (activeTab !== 'analytics') return;
+    setAnalyticsLoading(true);
+    getPromotionAnalytics(organizationId).then(rows => {
+      setPromoAnalytics(rows);
+      setAnalyticsLoading(false);
+    });
+  }, [activeTab, organizationId]);
+
   // Статус "Истекла" — вычисляемый (не хранится в БД), поэтому без тика по таймеру
   // бейдж не обновится сам, пока не перезагрузить страницу — досчитываем каждые 30с.
   const [, setTick] = useState(0);
