@@ -11,6 +11,7 @@ import {
   approvePromotion,
   cancelPromotion,
   deletePromotion,
+  getPromotionAnalytics,
 } from '@/app/actions/promotions';
 import { massUpdatePrices } from '@/app/actions/units';
 import {
@@ -96,6 +97,18 @@ export default function PricingClient({ projects, initialPromotions, organizatio
     getCumulativeDiscountTiers(organizationId).then(setLoyaltyTiers);
   }, [organizationId]);
 
+  // ── Аналитика по акциям (раздел 7 ТЗ) ────────────────────────────────────
+  const [promoAnalytics, setPromoAnalytics] = useState<any[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  useEffect(() => {
+    if (activeTab !== 'analytics') return;
+    setAnalyticsLoading(true);
+    getPromotionAnalytics(organizationId).then(rows => {
+      setPromoAnalytics(rows);
+      setAnalyticsLoading(false);
+    });
+  }, [activeTab, organizationId]);
+
   function handleEditLoyaltyTier(t: any) {
     setEditingLoyaltyId(t.id);
     setLoyaltyMinPurchases(t.minPurchases);
@@ -134,7 +147,7 @@ export default function PricingClient({ projects, initialPromotions, organizatio
   }
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<'promotions' | 'mic' | 'loyalty'>('promotions');
+  const [activeTab, setActiveTab] = useState<'promotions' | 'mic' | 'loyalty' | 'analytics'>('promotions');
   const [promotions, setPromotions] = useState(initialPromotions);
   // router.refresh() после создания/согласования/отмены акции перезапрашивает данные на
   // сервере и обновляет initialPromotions, но useState выше берёт его только при первом
@@ -175,6 +188,10 @@ export default function PricingClient({ projects, initialPromotions, organizatio
   const [nbgRate, setNbgRate] = useState(2.7);
   const [startAt, setStartAt] = useState('');
   const [endAt, setEndAt] = useState('');
+  // Лимиты применений (раздел 2 ТЗ) — пусто = без ограничения
+  const [totalLimit, setTotalLimit] = useState('');
+  const [perClientLimit, setPerClientLimit] = useState('');
+  const [perUnitLimit, setPerUnitLimit] = useState('');
 
   const selectedBlock = projects.find((p: any) => p.id === filterProjectId);
 
@@ -203,6 +220,9 @@ export default function PricingClient({ projects, initialPromotions, organizatio
     setNbgRate(2.7);
     setStartAt('');
     setEndAt('');
+    setTotalLimit('');
+    setPerClientLimit('');
+    setPerUnitLimit('');
   }
 
   async function handleRunFilter() {
@@ -249,6 +269,9 @@ export default function PricingClient({ projects, initialPromotions, organizatio
       setNbgRate(detail.nbgRate);
       setStartAt(toDatetimeLocal(detail.startAt));
       setEndAt(toDatetimeLocal(detail.endAt));
+      setTotalLimit(detail.totalLimit != null ? String(detail.totalLimit) : '');
+      setPerClientLimit(detail.perClientLimit != null ? String(detail.perClientLimit) : '');
+      setPerUnitLimit(detail.perUnitLimit != null ? String(detail.perUnitLimit) : '');
       setPreviewUnits(detail.units || []);
       setExcludedIds(new Set());
       setListFinalized(true);
@@ -275,6 +298,9 @@ export default function PricingClient({ projects, initialPromotions, organizatio
         endAt: toLocalTZISOString(endAt),
         unitIds: finalUnits.map(u => u.id),
         organizationId,
+        totalLimit: totalLimit ? Number(totalLimit) : null,
+        perClientLimit: perClientLimit ? Number(perClientLimit) : null,
+        perUnitLimit: perUnitLimit ? Number(perUnitLimit) : null,
       };
       const res = editingId
         ? await updatePromotionDraft({ ...payload, promotionId: editingId })
@@ -376,6 +402,7 @@ export default function PricingClient({ projects, initialPromotions, organizatio
         <button className={`${styles.tab} ${activeTab === 'promotions' ? styles.tabActive : ''}`} onClick={() => setActiveTab('promotions')}>Акции</button>
         <button className={`${styles.tab} ${activeTab === 'mic' ? styles.tabActive : ''}`} onClick={() => setActiveTab('mic')}>Массовое изменение цен</button>
         <button className={`${styles.tab} ${activeTab === 'loyalty' ? styles.tabActive : ''}`} onClick={() => setActiveTab('loyalty')}>Накопительные скидки</button>
+        <button className={`${styles.tab} ${activeTab === 'analytics' ? styles.tabActive : ''}`} onClick={() => setActiveTab('analytics')}>Аналитика акций</button>
       </div>
 
       {activeTab === 'promotions' && (
@@ -540,6 +567,46 @@ export default function PricingClient({ projects, initialPromotions, organizatio
         </div>
       )}
 
+      {activeTab === 'analytics' && (
+        analyticsLoading ? (
+          <div className={styles.emptyState}>Загрузка...</div>
+        ) : promoAnalytics.length === 0 ? (
+          <div className={styles.emptyState}>Акций пока нет.</div>
+        ) : (
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Статус</th>
+                <th>Помещений</th>
+                <th>Сделок (активных / выиграно / отказ-расторжение)</th>
+                <th>Лимиты (общий / клиент / объект)</th>
+                <th>Сумма скидок</th>
+                <th>Выручка по акции</th>
+              </tr>
+            </thead>
+            <tbody>
+              {promoAnalytics.map((p: any) => {
+                const displayStatus = computeDisplayStatus(p.status, p.startAt, p.endAt);
+                return (
+                  <tr key={p.id}>
+                    <td style={{ fontWeight: 700 }}>{p.name}</td>
+                    <td><span className={`${styles.badge} ${(styles as any)[STATUS_BADGE_CLASS[displayStatus]]}`}>{STATUS_LABELS[displayStatus]}</span></td>
+                    <td>{p.unitsCount}</td>
+                    <td>{p.activeDealsCount} / {p.wonDealsCount} / {p.lostDealsCount}</td>
+                    <td style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                      {p.totalLimit != null ? `${p.activeDealsCount}/${p.totalLimit}` : '—'} · {p.perClientLimit ?? '—'} · {p.perUnitLimit ?? '—'}
+                    </td>
+                    <td>${Math.round(Number(p.totalDiscountUSD) || 0).toLocaleString()}</td>
+                    <td>${Math.round(Number(p.totalRevenueUSD) || 0).toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )
+      )}
+
       {/* ── Модалка конструктора акции ─────────────────────────────────────── */}
       {showConstructor && (
         <div className={styles.modalOverlay} onClick={() => setShowConstructor(false)}>
@@ -697,6 +764,23 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                     <input type="datetime-local" className={styles.input} value={endAt} onChange={e => setEndAt(e.target.value)} />
                   </div>
                 </div>
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>Общий лимит применений</label>
+                    <input type="number" min="1" className={styles.input} placeholder="Без ограничения" value={totalLimit} onChange={e => setTotalLimit(e.target.value)} />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Лимит на клиента</label>
+                    <input type="number" min="1" className={styles.input} placeholder="Без ограничения" value={perClientLimit} onChange={e => setPerClientLimit(e.target.value)} />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Лимит на объект</label>
+                    <input type="number" min="1" className={styles.input} placeholder="Без ограничения" value={perUnitLimit} onChange={e => setPerUnitLimit(e.target.value)} />
+                  </div>
+                </div>
+                <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '4px' }}>
+                  Лимиты считаются по количеству сделок, к которым фактически применена акция (расторгнутые и отказные не считаются). Оставьте поле пустым, если ограничение не нужно.
+                </p>
               </div>
             )}
 

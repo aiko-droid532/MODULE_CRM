@@ -208,7 +208,7 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
         // фиксировать в снапшот нечего, если не зафиксировать ТЕКУЩУЮ эффективную цену объекта
         // (с учётом акции, если она сейчас активна) прямо сейчас, при входе в "Договор".
         const promoRows: any[] = await prisma.$queryRaw`
-          SELECT pr."effectType", pr."effectValueType", pr."effectValue", pr."nbgRate"
+          SELECT pr.id as "promotionId", pr."effectType", pr."effectValueType", pr."effectValue", pr."nbgRate"
           FROM "Promotion" pr
           JOIN "PromotionUnit" pu ON pu."promotionId" = pr.id
           WHERE pu."unitId" = ${deal.unitId}
@@ -227,6 +227,7 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
           SET "totalAmount" = ${effectivePrice},
               "basePriceUSD" = ${effectivePrice},
               "catalogPriceUSD" = ${deal.unitPrice},
+              "promotionId" = ${promo?.promotionId || null},
               "priceLocked" = true, "priceLockedAt" = NOW(), "priceLockedById" = ${mgrId}, "updatedAt" = NOW()
           WHERE "id" = ${dealId}
         `;
@@ -738,13 +739,28 @@ export async function saveInstallmentPlanAction(data: {
 
     // Цена зафиксирована (сделка уже дошла до статуса "Договор") — менять её может только РОП/админ
     const lockedRows: any[] = await prisma.$queryRaw`
-      SELECT "priceLocked" FROM "Deal" WHERE id = ${data.dealId} LIMIT 1
+      SELECT "priceLocked", "unitId", "leadId" FROM "Deal" WHERE id = ${data.dealId} LIMIT 1
     `;
     if (lockedRows[0]?.priceLocked && !canApprovePromotions(role)) {
       return {
         success: false,
         error: 'Цена по этой сделке зафиксирована после заключения договора. Изменить может только руководитель ОП.',
       };
+    }
+
+    // Акция, реально действующая сейчас на объекте сделки — привязываем к сделке для лимитов
+    // применения (Общий/на клиента/на объект) и аналитики (см. promotions.ts)
+    const { getLivePromotionForUnit, checkPromotionLimits } = await import('./promotions');
+    const dealUnitId = lockedRows[0]?.unitId;
+    const dealLeadId = lockedRows[0]?.leadId;
+    const livePromo = dealUnitId ? await getLivePromotionForUnit(dealUnitId) : null;
+    const promotionId = livePromo?.promotionId || null;
+
+    if (promotionId && dealUnitId && dealLeadId) {
+      const limitCheck = await checkPromotionLimits(promotionId, dealUnitId, dealLeadId, data.dealId);
+      if (!limitCheck.ok) {
+        return { success: false, error: limitCheck.reason };
+      }
     }
 
     // Индивидуальная (+ накопительная, уже включённая в finalPriceUSD) скидка
@@ -793,6 +809,7 @@ export async function saveInstallmentPlanAction(data: {
         "periodicity" = ${data.periodicity},
         "basePriceUSD" = ${data.basePriceUSD},
         "catalogPriceUSD" = ${data.catalogPriceUSD ?? null},
+        "promotionId" = ${promotionId},
         "discountApplyType" = ${data.discountApplyType},
         "discountAmountUSD" = ${data.discountAmountUSD},
         "discountPercent" = ${discountPercent},

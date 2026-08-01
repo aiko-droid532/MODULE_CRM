@@ -72,6 +72,9 @@ export async function createPromotionDraft(data: {
   unitIds: string[];
   organizationId: string;
   createdById: string;
+  totalLimit?: number | null;
+  perClientLimit?: number | null;
+  perUnitLimit?: number | null;
 }) {
   try {
     await requireRole(canCreatePromotions, 'создание акции');
@@ -93,11 +96,13 @@ export async function createPromotionDraft(data: {
         "id", "name", "effectType", "effectValueType", "effectValue", "nbgRate",
         "startAt", "endAt", "status", "createdById", "organizationId",
         discount, discount_type, condition_label,
+        "totalLimit", "perClientLimit", "perUnitLimit",
         "createdAt", updated_at
       ) VALUES (
         ${id}, ${data.name}, ${data.effectType}, ${data.effectValueType}, ${data.effectValue}, ${data.nbgRate},
         ${new Date(data.startAt)}, ${new Date(data.endAt)}, 'DRAFT', ${data.createdById}, ${data.organizationId},
         ${data.effectValue}, ${discountType}, ${conditionLabel},
+        ${data.totalLimit ?? null}, ${data.perClientLimit ?? null}, ${data.perUnitLimit ?? null},
         NOW(), NOW()
       )
     `;
@@ -183,6 +188,9 @@ export async function updatePromotionDraft(data: {
   endAt: string;
   unitIds: string[];
   organizationId: string;
+  totalLimit?: number | null;
+  perClientLimit?: number | null;
+  perUnitLimit?: number | null;
 }) {
   try {
     await requireRole(canApprovePromotions, 'редактирование акции');
@@ -206,6 +214,9 @@ export async function updatePromotionDraft(data: {
           discount = ${data.effectValue},
           discount_type = ${discountType},
           condition_label = ${conditionLabel},
+          "totalLimit" = ${data.totalLimit ?? null},
+          "perClientLimit" = ${data.perClientLimit ?? null},
+          "perUnitLimit" = ${data.perUnitLimit ?? null},
           updated_at = NOW()
       WHERE id = ${data.promotionId} AND "organizationId" = ${data.organizationId}
     `;
@@ -396,5 +407,95 @@ export async function getLivePromotionForUnit(unitId: string) {
   } catch (error) {
     console.error('getLivePromotionForUnit error:', error);
     return null;
+  }
+}
+
+// ── Лимиты применения акции (Общий / на клиента / на объект) ────────────────
+// "Применение" = сделка (Deal), к которой привязана эта акция (Deal.promotionId, проставляется
+// при сохранении графика в saveInstallmentPlanAction/savePaymentScheduleAction). Расторгнутые
+// и провальные сделки (CANCELLED/FAILED) в счёт лимита не идут — место освобождается.
+// excludeDealId — при пересохранении УЖЕ существующей сделки не считаем её саму.
+export async function checkPromotionLimits(
+  promotionId: string,
+  unitId: string,
+  leadId: string,
+  excludeDealId?: string
+): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const promoRows: any[] = await prisma.$queryRaw`
+      SELECT "totalLimit", "perClientLimit", "perUnitLimit" FROM "Promotion" WHERE id = ${promotionId} LIMIT 1
+    `;
+    const promo = promoRows[0];
+    if (!promo) return { ok: true };
+
+    if (promo.totalLimit != null) {
+      const rows: any[] = await prisma.$queryRaw`
+        SELECT COUNT(*)::int as cnt FROM "Deal"
+        WHERE "promotionId" = ${promotionId} AND status NOT IN ('CANCELLED', 'FAILED')
+          ${excludeDealId ? Prisma.sql`AND id != ${excludeDealId}` : Prisma.empty}
+      `;
+      if (rows[0].cnt >= promo.totalLimit) {
+        return { ok: false, reason: `Общий лимит применений акции исчерпан (${promo.totalLimit})` };
+      }
+    }
+
+    if (promo.perClientLimit != null && leadId) {
+      const rows: any[] = await prisma.$queryRaw`
+        SELECT COUNT(*)::int as cnt FROM "Deal"
+        WHERE "promotionId" = ${promotionId} AND "leadId" = ${leadId} AND status NOT IN ('CANCELLED', 'FAILED')
+          ${excludeDealId ? Prisma.sql`AND id != ${excludeDealId}` : Prisma.empty}
+      `;
+      if (rows[0].cnt >= promo.perClientLimit) {
+        return { ok: false, reason: `Клиент уже использовал эту акцию максимальное число раз (${promo.perClientLimit})` };
+      }
+    }
+
+    if (promo.perUnitLimit != null && unitId) {
+      const rows: any[] = await prisma.$queryRaw`
+        SELECT COUNT(*)::int as cnt FROM "Deal"
+        WHERE "promotionId" = ${promotionId} AND "unitId" = ${unitId} AND status NOT IN ('CANCELLED', 'FAILED')
+          ${excludeDealId ? Prisma.sql`AND id != ${excludeDealId}` : Prisma.empty}
+      `;
+      if (rows[0].cnt >= promo.perUnitLimit) {
+        return { ok: false, reason: `Это помещение уже использовало данную акцию максимальное число раз (${promo.perUnitLimit})` };
+      }
+    }
+
+    return { ok: true };
+  } catch (error) {
+    console.error('checkPromotionLimits error:', error);
+    // Технический сбой проверки не должен блокировать сохранение сделки
+    return { ok: true };
+  }
+}
+
+// ── Аналитика по акциям (раздел 7 ТЗ) ────────────────────────────────────────
+// Число и объём сделок с акцией, влияние на маржу (сумма скидки), использование лимитов.
+export async function getPromotionAnalytics(organizationId: string) {
+  noStore();
+  try {
+    const rows: any[] = await prisma.$queryRaw`
+      SELECT
+        pr.id, pr.name, pr.status, pr."startAt", pr."endAt",
+        pr."totalLimit", pr."perClientLimit", pr."perUnitLimit",
+        (SELECT COUNT(*)::int FROM "PromotionUnit" WHERE "promotionId" = pr.id) as "unitsCount",
+        (SELECT COUNT(*)::int FROM "Deal" WHERE "promotionId" = pr.id AND status NOT IN ('CANCELLED', 'FAILED')) as "activeDealsCount",
+        (SELECT COUNT(*)::int FROM "Deal" WHERE "promotionId" = pr.id AND status = 'SUCCESS') as "wonDealsCount",
+        (SELECT COUNT(*)::int FROM "Deal" WHERE "promotionId" = pr.id AND status IN ('CANCELLED', 'FAILED')) as "lostDealsCount",
+        (SELECT COALESCE(SUM(d."catalogPriceUSD" - d."totalAmount"), 0)
+           FROM "Deal" d
+           WHERE d."promotionId" = pr.id AND d.status NOT IN ('CANCELLED', 'FAILED')
+             AND d."catalogPriceUSD" IS NOT NULL AND d."totalAmount" IS NOT NULL) as "totalDiscountUSD",
+        (SELECT COALESCE(SUM(d."totalAmount"), 0)
+           FROM "Deal" d
+           WHERE d."promotionId" = pr.id AND d.status NOT IN ('CANCELLED', 'FAILED')) as "totalRevenueUSD"
+      FROM "Promotion" pr
+      WHERE pr."organizationId" = ${organizationId}
+      ORDER BY pr."createdAt" DESC
+    `;
+    return rows;
+  } catch (error) {
+    console.error('getPromotionAnalytics error:', error);
+    return [];
   }
 }

@@ -795,6 +795,19 @@ export async function savePaymentScheduleAction(data: {
       };
     }
 
+    // Акция, реально действующая сейчас на объекте сделки — привязываем к сделке для лимитов
+    // применения (Общий/на клиента/на объект) и аналитики (см. promotions.ts)
+    const { getLivePromotionForUnit, checkPromotionLimits } = await import('./promotions');
+    const livePromo = await getLivePromotionForUnit(data.unitId);
+    const promotionId = livePromo?.promotionId || null;
+
+    if (promotionId) {
+      const limitCheck = await checkPromotionLimits(promotionId, data.unitId, data.leadId, dealId);
+      if (!limitCheck.ok) {
+        return { success: false, error: limitCheck.reason };
+      }
+    }
+
     // Уходит заявкой на согласование РОП/админу (а не отклоняется отказом), если:
     // а) роль manager и есть хоть какая-то ручная скидка (даже в пределах её порога — по договорённости
     //    любая ручная скидка менеджера требует подтверждения), ИЛИ
@@ -825,6 +838,7 @@ export async function savePaymentScheduleAction(data: {
       SET "paymentType" = ${data.paymentType}, "downPayment" = ${data.downPayment}, "totalAmount" = ${data.totalAmount},
         "basePriceUSD" = ${basePrice},
         "catalogPriceUSD" = ${data.catalogPriceUSD ?? null},
+        "promotionId" = ${promotionId},
         "discountPercent" = ${discountPercent},
         "discountApprovedById" = ${discountPercent > 0 ? (data.initiatorId || null) : null},
         "discountApprovedByRole" = ${discountPercent > 0 ? role : null},
