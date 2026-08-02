@@ -15,8 +15,15 @@ export async function middleware(request: NextRequest) {
   if (token) {
     const result = await verifyToken(token);
     if (result.payload) {
-      // Вместо редиректа просто разрешаем запрос и ставим куку
-      const response = NextResponse.next();
+      // ВАЖНО: делаем редирект (а не NextResponse.next()) на тот же URL без ?token.
+      // Причина бага "роль меняется только со второго захода": Set-Cookie в ответе
+      // применяется браузером только к СЛЕДУЮЩЕМУ запросу — а сам ТЕКУЩИЙ запрос,
+      // пропущенный через .next(), долетает до страницы всё ещё со СТАРОЙ кукой
+      // (от предыдущего аккаунта). Редирект заставляет браузер сразу сделать новый
+      // запрос уже с обновлённой кукой, поэтому роль подхватывается с первого раза.
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.searchParams.delete('token');
+      const response = NextResponse.redirect(redirectUrl);
       response.cookies.set('auth_token', token, {
         httpOnly: true,
         secure: false, // Отключаем для работы на HTTP без SSL
