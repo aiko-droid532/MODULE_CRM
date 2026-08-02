@@ -24,10 +24,11 @@ import {
   computeDisplayStatus,
   formatEffectSummary,
   formatGeorgiaDateTime,
+  calcPromoPrice,
   type PromotionEffectType,
   type PromotionEffectValueType,
 } from '@/lib/promotionCalculator';
-import { canCreatePromotions, canApprovePromotions, canManagePrices, UserRole } from '@/lib/roles';
+import { canCreatePromotions, canApprovePromotions, canManagePrices, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel, UserRole } from '@/lib/roles';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
@@ -200,6 +201,63 @@ export default function PricingClient({ projects, initialPromotions, organizatio
     () => previewUnits.filter(u => !excludedIds.has(u.id)),
     [previewUnits, excludedIds]
   );
+
+  // Предварительная оценка максимального % скидки среди помещений списка (худший случай) —
+  // порог согласования по роли проверяется так же и на сервере при сохранении черновика.
+  const maxPromoDiscountPercent = useMemo(() => {
+    if (finalUnits.length === 0 || !effectValue) return 0;
+    let max = 0;
+    for (const u of finalUnits) {
+      if (!u.price || u.price <= 0) continue;
+      const promoPriceUSD = calcPromoPrice(u.price, u.area, { effectType, effectValueType, effectValue }, nbgRate).promoPriceUSD;
+      const percent = ((u.price - promoPriceUSD) / u.price) * 100;
+      if (percent > max) max = percent;
+    }
+    return Math.round(max * 10) / 10;
+  }, [finalUnits, effectType, effectValueType, effectValue, nbgRate]);
+  const promoDiscountAllowed = canApplyDiscountPercent(role, maxPromoDiscountPercent);
+
+  // Граничное значение поля "Размер", при котором худший случай среди помещений списка
+  // РОВНО упирается в порог согласования текущей роли — считается в обратную сторону от
+  // порога (а не наоборот, как maxPromoDiscountPercent выше), чтобы подсказать сразу,
+  // какое значение ещё не потребует согласования. Для SPECIAL_RATE_PER_SQM/FIXED_PRICE
+  // эффект действует "наоборот" (чем МЕНЬШЕ величина — тем БОЛЬШЕ скидка), поэтому граница
+  // там снизу (min), а не сверху (max). MARKUP скидкой не является — порога не имеет.
+  const effectValueThresholdBoundary = useMemo(() => {
+    if (finalUnits.length === 0) return null;
+    const roleMax = getMaxDiscountPercent(role);
+    if (!isFinite(roleMax)) return null; // admin — без ограничения, подсказка не нужна
+    const t = roleMax / 100;
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    switch (effectType) {
+      case 'DISCOUNT_PER_SQM': {
+        const perSqmValues = finalUnits.map((u: any) => u.pricePerSqmVAT || (u.price / u.area)).filter((v: number) => v > 0);
+        if (perSqmValues.length === 0) return null;
+        return { value: round2(t * Math.min(...perSqmValues)), direction: 'max' as const, unit: '$/м²' };
+      }
+      case 'DISCOUNT_TOTAL': {
+        if (effectValueType === 'PERCENT') {
+          return { value: Math.round(roleMax * 10) / 10, direction: 'max' as const, unit: '%' };
+        }
+        const totals = finalUnits.map((u: any) => u.price).filter((v: number) => v > 0);
+        if (totals.length === 0) return null;
+        return { value: round2(t * Math.min(...totals)), direction: 'max' as const, unit: '$' };
+      }
+      case 'SPECIAL_RATE_PER_SQM': {
+        const perSqmValues = finalUnits.map((u: any) => u.pricePerSqmVAT || (u.price / u.area)).filter((v: number) => v > 0);
+        if (perSqmValues.length === 0) return null;
+        return { value: round2(Math.max(...perSqmValues) * (1 - t)), direction: 'min' as const, unit: '$/м²' };
+      }
+      case 'FIXED_PRICE': {
+        const totals = finalUnits.map((u: any) => u.price).filter((v: number) => v > 0);
+        if (totals.length === 0) return null;
+        return { value: round2(Math.max(...totals) * (1 - t)), direction: 'min' as const, unit: '$' };
+      }
+      default:
+        return null; // MARKUP — не скидка, порог не применяется
+    }
+  }, [finalUnits, effectType, effectValueType, role]);
 
   function resetConstructor() {
     setEditingId(null);
@@ -752,7 +810,21 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                       {effectType === 'MARKUP' && (effectValueType === 'PERCENT' ? 'Наценка (%)' : 'Наценка ($)')}
                       {effectType === 'FIXED_PRICE' && 'Фиксированная цена ($)'}
                     </label>
-                    <input type="number" className={styles.input} value={effectValue} onChange={e => setEffectValue(Number(e.target.value))} />
+                    <input
+                      type="number"
+                      className={styles.input}
+                      value={effectValue}
+                      onChange={e => setEffectValue(Number(e.target.value))}
+                      {...(effectValueThresholdBoundary?.direction === 'max' ? { max: effectValueThresholdBoundary.value } : {})}
+                      {...(effectValueThresholdBoundary?.direction === 'min' ? { min: effectValueThresholdBoundary.value } : {})}
+                    />
+                    {effectValueThresholdBoundary && (
+                      <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '4px 0 0' }}>
+                        {effectValueThresholdBoundary.direction === 'max'
+                          ? `Ваша роль (порог ${getMaxDiscountPercent(role)}%) может создать черновик до ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit} — больше доступно только роли: ${getRequiredApproverLabel(getMaxDiscountPercent(role) + 0.1)}. Согласование на Active нужно в любом случае.`
+                          : `Ваша роль (порог ${getMaxDiscountPercent(role)}%) может создать черновик от ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit} и выше — меньше доступно только роли: ${getRequiredApproverLabel(getMaxDiscountPercent(role) + 0.1)}. Согласование на Active нужно в любом случае.`}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className={styles.formRow}>
@@ -782,12 +854,25 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                 <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '4px' }}>
                   Лимиты считаются по количеству сделок, к которым фактически применена акция (расторгнутые и отказные не считаются). Оставьте поле пустым, если ограничение не нужно.
                 </p>
+                {maxPromoDiscountPercent > 0 && (
+                  <div style={{
+                    marginTop: '10px', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600,
+                    background: promoDiscountAllowed ? '#f0fdf4' : '#fef2f2',
+                    color: promoDiscountAllowed ? '#166534' : '#dc2626',
+                    border: `1px solid ${promoDiscountAllowed ? '#bbf7d0' : '#fecaca'}`
+                  }}>
+                    Максимальная скидка по акции (худший случай среди помещений списка): {maxPromoDiscountPercent}%{promoDiscountAllowed
+                      ? ' — вы можете сохранить черновик такого размера.'
+                      : ` — превышает ваш порог (до ${getMaxDiscountPercent(role)}%). Создать черновик такого размера может только роль: ${getRequiredApproverLabel(maxPromoDiscountPercent)}.`}
+                    {' '}Согласование на Active потребуется в любом случае — от РОП/админа.
+                  </div>
+                )}
               </div>
             )}
 
             <div className={styles.modalFooter}>
               <button className={styles.secondaryBtn} onClick={() => { setShowConstructor(false); resetConstructor(); }}>Отмена</button>
-              <button className={styles.primaryBtn} onClick={handleSaveDraft} disabled={loading || finalUnits.length === 0}>
+              <button className={styles.primaryBtn} onClick={handleSaveDraft} disabled={loading || finalUnits.length === 0 || !promoDiscountAllowed}>
                 {loading ? 'Сохранение...' : editingId ? 'Сохранить изменения' : 'Сохранить как черновик'}
               </button>
             </div>

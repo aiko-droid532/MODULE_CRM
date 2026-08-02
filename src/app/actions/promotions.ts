@@ -3,8 +3,8 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { requireRole, canCreatePromotions, canApprovePromotions } from '@/lib/roles';
-import { formatEffectSummary } from '@/lib/promotionCalculator';
+import { requireRole, canCreatePromotions, canApprovePromotions, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel } from '@/lib/roles';
+import { formatEffectSummary, calcPromoPrice } from '@/lib/promotionCalculator';
 
 // Таблицы: "Promotion" (сама акция) и "PromotionUnit" (связующая, аналог их flat_promotions).
 // Названия ТАБЛИЦ не меняем — только 4 поля в "Promotion" выровнены под БД сайта заказчика:
@@ -12,6 +12,39 @@ import { formatEffectSummary } from '@/lib/promotionCalculator';
 
 function toCustomerDiscountType(effectValueType: string): 'percent' | 'amount' {
   return effectValueType === 'PERCENT' ? 'percent' : 'amount';
+}
+
+// Порог согласования по роли применяем и к самой акции — не только к индивидуальной скидке
+// на сделке. Считаем по ХУДШЕМУ случаю среди всех помещений списка (у каждого своя каталожная
+// цена, поэтому один и тот же эффект даёт разный %), это покрывает все типы эффекта одинаково
+// (скидка %, скидка $, спецтариф, наценка, фикс.цена), а не только "скидка %".
+async function checkPromotionDiscountThreshold(
+  role: string,
+  unitIds: string[],
+  effect: { effectType: string; effectValueType: string; effectValue: number },
+  nbgRate: number
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!unitIds || unitIds.length === 0) return { ok: true };
+  const units: any[] = await prisma.$queryRaw`
+    SELECT price, area FROM "Unit" WHERE id IN (${Prisma.join(unitIds)})
+  `;
+
+  let maxDiscountPercent = 0;
+  for (const u of units) {
+    if (!u.price || u.price <= 0) continue;
+    const promoPriceUSD = calcPromoPrice(u.price, u.area, effect as any, nbgRate).promoPriceUSD;
+    const percent = ((u.price - promoPriceUSD) / u.price) * 100;
+    if (percent > maxDiscountPercent) maxDiscountPercent = percent;
+  }
+  const roundedMax = Math.round(maxDiscountPercent * 10) / 10;
+
+  if (roundedMax > 0 && !canApplyDiscountPercent(role as any, roundedMax)) {
+    return {
+      ok: false,
+      reason: `Скидка по акции (до ${roundedMax}%) превышает порог вашей роли (до ${getMaxDiscountPercent(role as any)}%). Создание акции такого размера доступно роли: ${getRequiredApproverLabel(roundedMax)}.`,
+    };
+  }
+  return { ok: true };
 }
 
 // ── Подбор помещений по фильтру (шаг 1 конструктора) ────────────────────────
@@ -77,10 +110,20 @@ export async function createPromotionDraft(data: {
   perUnitLimit?: number | null;
 }) {
   try {
-    await requireRole(canCreatePromotions, 'создание акции');
+    const role = await requireRole(canCreatePromotions, 'создание акции');
 
     if (!data.unitIds || data.unitIds.length === 0) {
       return { success: false, error: 'Список помещений пуст' };
+    }
+
+    const thresholdCheck = await checkPromotionDiscountThreshold(
+      role,
+      data.unitIds,
+      { effectType: data.effectType, effectValueType: data.effectValueType, effectValue: data.effectValue },
+      data.nbgRate
+    );
+    if (!thresholdCheck.ok) {
+      return { success: false, error: thresholdCheck.reason };
     }
 
     const id = crypto.randomUUID();
@@ -193,7 +236,17 @@ export async function updatePromotionDraft(data: {
   perUnitLimit?: number | null;
 }) {
   try {
-    await requireRole(canApprovePromotions, 'редактирование акции');
+    const role = await requireRole(canApprovePromotions, 'редактирование акции');
+
+    const thresholdCheck = await checkPromotionDiscountThreshold(
+      role,
+      data.unitIds,
+      { effectType: data.effectType, effectValueType: data.effectValueType, effectValue: data.effectValue },
+      data.nbgRate
+    );
+    if (!thresholdCheck.ok) {
+      return { success: false, error: thresholdCheck.reason };
+    }
 
     const conditionLabel = formatEffectSummary({
       effectType: data.effectType as any,
