@@ -821,8 +821,8 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                     {effectValueThresholdBoundary && (
                       <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '4px 0 0' }}>
                         {effectValueThresholdBoundary.direction === 'max'
-                          ? `Ваша роль (порог ${getMaxDiscountPercent(role)}%) может создать черновик до ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit} — больше доступно только роли: ${getRequiredApproverLabel(getMaxDiscountPercent(role) + 0.1)}. Согласование на Active нужно в любом случае.`
-                          : `Ваша роль (порог ${getMaxDiscountPercent(role)}%) может создать черновик от ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit} и выше — меньше доступно только роли: ${getRequiredApproverLabel(getMaxDiscountPercent(role) + 0.1)}. Согласование на Active нужно в любом случае.`}
+                          ? `Ваша роль (порог ${getMaxDiscountPercent(role)}%) может создать черновик до ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit} — больше потребует более высокую роль (см. подсказку ниже). Согласование на Active нужно в любом случае.`
+                          : `Ваша роль (порог ${getMaxDiscountPercent(role)}%) может создать черновик от ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit} и выше — меньше потребует более высокую роль (см. подсказку ниже). Согласование на Active нужно в любом случае.`}
                       </p>
                     )}
                   </div>
