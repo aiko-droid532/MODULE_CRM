@@ -62,6 +62,7 @@ const REPORT_CATALOG = [
       "Группировка клиентов по когортам первого контакта. Время до успешной сделки.",
     category: "sales",
     isCritical: false,
+    hidden: true, // <-- скрыт
   },
 
   // 2. Финансы
@@ -183,6 +184,7 @@ const REPORT_CATALOG = [
       "Клиенты с пометкой VIP, суммами сделок и историей активности.",
     category: "clients",
     isCritical: false,
+    hidden: true, // <-- скрыт
   },
   {
     id: "RPT-022",
@@ -250,7 +252,7 @@ const IMPLEMENTED_REPORTS = [
 
 const CATEGORIES = [
   { id: "sales", name: "Воронка и продажи" },
-  { id: "finance", name: "Финансы и оплаты" },
+  // { id: "finance", name: "Финансы и оплаты" }, // <-- удалено
   { id: "units", name: "Квартиры и остатки" },
   { id: "clients", name: "Клиенты" },
   { id: "efficiency", name: "Эффективность" },
@@ -3677,9 +3679,8 @@ export default function ReportsClient({
                   >
                     <div className={styles.reportItemHeader}>
                       <span>{report.name}</span>
-                      {report.isCritical && (
-                        <span className={styles.criticalBadge}>Критич.</span>
-                      )}
+    
+                      
                     </div>
                   </li>
                 ),

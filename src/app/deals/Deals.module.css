@@ -436,3 +436,36 @@
   from { opacity: 0; transform: translateX(-50%) translateY(20px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+.modalFullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100%;
+  border-radius: 0;
+  padding: 24px;
+  overflow-y: auto;
+  background: white;
+  box-shadow: none;
+  animation: modalFadeIn 0.2s ease;
+}
+
+.infoIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: help;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.infoIcon:hover {
+  background: #cbd5e1;
+  color: #1e293b;
+}

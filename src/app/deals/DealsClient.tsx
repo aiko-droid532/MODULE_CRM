@@ -68,6 +68,29 @@ const STATUS_ORDER: Record<string, number> = {
   CANCELLED: 17
 };
 
+
+const STAGE_DESCRIPTIONS: Record<string, string> = {
+  NEW_LEAD: 'Автоматически создаются из маркетинга: мессенджеры и Instagram.',
+  CLARIFICATION: 'Обработка лидов из мессенджеров и Instagram.',
+  CALL: 'Автоматически создаются из входящих звонков в колл-центр, а также из WhatsApp-звонков и сообщений.',
+  SECOND_CALL: 'Номера, которые не ответили.',
+  THIRD_CALL: 'Обработка номеров – квалифицирован ли клиент.',
+  CONSULTATION: 'Квалифицированные лиды из маркетинга и колл-центра. С этого этапа ответственность переходит к менеджерам по продажам.',
+  PRE_RESERVATION: 'Первый звонок менеджера.',
+  RESERVATION: 'Второй звонок (обязательный повторный контакт).',
+  CONTRACT_PREPARATION: 'Третий звонок (при необходимости).',
+  MEETING: 'Назначены встречи. Менеджер отмечает точные дату и время, получает уведомление о предстоящей встрече.',
+  CLIENT_CONFIRMATION: 'Встреча проведена. Менеджер вносит комментарии о потребностях клиента.',
+  CONTRACT: 'Запрошено бронирование. Два типа: стандартное (на 2 дня, автоматически переходит в подтверждённое) и нестандартное (на конкретную дату по запросу клиента, требует утверждения РОП).',
+  PAYMENT_CONFIRMED: 'Подтверждённые бронирования. Стандартные переходят автоматически, нестандартные – после утверждения РОП. В каталоге квартира меняет статус на «зарезервировано» (жёлтый цвет).',
+  DEAL: 'Договор подписан. На этом этапе менеджер может сгенерировать все документы по клиенту. После утверждения документов РОП сделка переходит в «Ожидание оплаты».',
+  WAITING_PAYMENT: 'Запрос на оплату направляется главному бухгалтеру. После подтверждения сделка автоматически переходит в WON.',
+  SUCCESS: 'Квартира продана.',
+  FAILED: 'Потерянные сделки, перенесённые с разных этапов с указанием причины и комментария.',
+  CANCELLED: 'Потерянные сделки, перенесённые с разных этапов с указанием причины и комментария.',
+  LOST_CANCELLED: 'Потерянные сделки, перенесённые с разных этапов с указанием причины и комментария.', // для группы
+};
+
 // Финальные статусы — из них нельзя двигаться никуда
 const FINAL_STATUSES = ['SUCCESS', 'FAILED', 'CANCELLED', 'LOST_CANCELLED'];
 
@@ -650,7 +673,15 @@ const handleSetPrimaryClient = async (leadId: string) => {
                       {expandedGroups[stage.id] ? '' : ''}
                     </span>
                   )}
-                  <h4>{stage.label}</h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+  <h4 style={{ margin: 0 }}>{stage.label}</h4>
+  <span 
+    className={styles.infoIcon} 
+    title={STAGE_DESCRIPTIONS[stage.id] || ''}
+  >
+    ⓘ
+  </span>
+</div>
                   <span className={styles.countBadge}>{stageDeals.length}</span>
                 </div>
 
@@ -831,11 +862,12 @@ const handleSetPrimaryClient = async (leadId: string) => {
 
       {/* Модальное окно деталей сделки с блоком Ипотеки */}
       {selectedDeal && (
-        <div className={styles.overlay} onClick={() => setSelectedDeal(null)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <header className={styles.modalHeader}>
+  <div className={styles.overlay} onClick={() => setSelectedDeal(null)}>
+    <div className={styles.modalFullscreen} onClick={(e) => e.stopPropagation()}>
+      <header className={styles.modalHeader}>
               <h2 style={{fontWeight: 800, color: '#0f172a', fontSize: '1.7rem'}}>Карточка сделки #{selectedDeal.id.slice(0, 8)}</h2>
-              <button className={styles.closeBtn} onClick={() => setSelectedDeal(null)}></button>
+              {/* Кнопка закрытия скрыта по заданию */}
+        <button className={styles.closeBtn} onClick={() => setSelectedDeal(null)}>✕</button>
             </header>
 
             <main className={styles.modalBody}>
@@ -931,7 +963,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
             )}
             <button
               className={styles.quickCallBtn}
-              style={{ background: '#fee2e2', color: '#ef4444' }}
+              style={{ background: '#fee2e2', color: '#ef4444', display: 'none' }}
               onClick={async () => {
                 if (confirm('Удалить клиента из сделки?')) {
                   await removeDealClient(client.id);
@@ -1037,7 +1069,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
   <div className={styles.infoSection}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
       <h3 style={{ fontWeight: 800, fontSize: '1.25rem', color: '#1e293b', borderBottom: '1px solid #f1f5f9', paddingBottom: '5px', margin: 0 }}>
-         Подарки
+         Бенефиты
       </h3>
       {canManage && (
         <button
@@ -1050,7 +1082,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
       )}
     </div>
     {dealGifts.length === 0 ? (
-      <p style={{ color: '#94a3b8', fontStyle: 'italic' }}>Подарков к сделке не добавлено</p>
+      <p style={{ color: '#94a3b8', fontStyle: 'italic' }}>Бенефитов к сделке не добавлено</p>
     ) : (
       dealGifts.map((g: any) => (
         <div key={g.id} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '8px' }}>
@@ -1332,11 +1364,11 @@ const handleSetPrimaryClient = async (leadId: string) => {
   <div className={styles.overlay} onClick={() => setShowAddGiftModal(false)}>
     <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
       <header className={styles.modalHeader}>
-        <h2 style={{ fontWeight: 800 }}> Добавить подарок</h2>
+        <h2 style={{ fontWeight: 800 }}> Добавить бенефит</h2>
         <button className={styles.closeBtn} onClick={() => setShowAddGiftModal(false)}></button>
       </header>
 
-      <label style={{ display: 'block', fontWeight: 800, fontSize: '0.8rem', color: '#475569', marginBottom: '5px' }}>Тип подарка</label>
+      <label style={{ display: 'block', fontWeight: 800, fontSize: '0.8rem', color: '#475569', marginBottom: '5px' }}>Тип бенефита</label>
       <select
         className={styles.modalInput}
         value={giftType}
@@ -1372,7 +1404,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
         </select>
       )}
       <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '6px' }}>
-        Паркинг/кладовая, выданные в подарок, автоматически резервируются и не смогут попасть в другую сделку.
+        Паркинг/кладовая, выданные как бенефит, автоматически резервируются и не смогут попасть в другую сделку.
       </p>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
