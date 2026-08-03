@@ -459,7 +459,7 @@ export default function LeadDossier({
     setLoading(true);
     const res = await anonymizeClient(lead.id, organizationId, anonymizeReason);
     if (res.success) {
-      alert("Клиент анонимизирован");
+      alert("ПД клиента скрыты");
       const updated = await getLeadById(lead.id);
       if (updated) setLead(updated);
       setShowAnonymizeConfirm(false);
@@ -775,7 +775,7 @@ export default function LeadDossier({
                           borderColor: "#fecaca",
                         }}
                       >
-                        Анонимизировать
+                        Скрыть ПД
                       </button>
                     )}
                     {canManage && !readOnly && (
@@ -1333,55 +1333,6 @@ export default function LeadDossier({
                       )}
                     </div>
                   )}
-                </div>
-              )}
-
-              {/* PDPS Согласия */}
-              {isClient && (
-                <div className={styles.sectionCard}>
-                  <div className={styles.sectionHeader}>
-                    <h3> Согласие PDPS</h3>
-                  </div>
-                  <div
-                    style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        padding: "10px 16px",
-                        borderRadius: "12px",
-                        fontSize: "0.9rem",
-                        fontWeight: 600,
-                        background: lead.consentToPdProcessing
-                          ? "#ecfdf5"
-                          : "#fef2f2",
-                        color: lead.consentToPdProcessing
-                          ? "#059669"
-                          : "#dc2626",
-                        border: `1px solid ${lead.consentToPdProcessing ? "#a7f3d0" : "#fecaca"}`,
-                      }}
-                    >
-                      {lead.consentToPdProcessing ? "" : ""} Обработка ПД
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        padding: "10px 16px",
-                        borderRadius: "12px",
-                        fontSize: "0.9rem",
-                        fontWeight: 600,
-                        background: lead.optInMarketing ? "#ecfdf5" : "#f8fafc",
-                        color: lead.optInMarketing ? "#059669" : "#94a3b8",
-                        border: `1px solid ${lead.optInMarketing ? "#a7f3d0" : "#e2e8f0"}`,
-                      }}
-                    >
-                      {lead.optInMarketing ? "" : "—"} Маркетинг
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -1957,9 +1908,9 @@ export default function LeadDossier({
           onClick={() => setShowAnonymizeConfirm(false)}
         >
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3> Анонимизация клиента</h3>
+            <h3> Скрыть ПД клиента</h3>
             <p>
-              Вы уверены, что хотите анонимизировать клиента{" "}
+              Вы уверены, что хотите скрыть персональные данные клиента{" "}
               <strong>{lead.name}</strong>?
             </p>
             <p>Все персональные данные будут заменены на "XXX":</p>
@@ -1972,7 +1923,7 @@ export default function LeadDossier({
             </ul>
             <p>Данные о сделках и платежах сохранятся.</p>
             <textarea
-              placeholder="Причина анонимизации (обязательно)"
+              placeholder="Причина скрытия ПД (обязательно)"
               value={anonymizeReason}
               onChange={(e) => setAnonymizeReason(e.target.value)}
               rows={3}
@@ -2018,7 +1969,7 @@ export default function LeadDossier({
                   cursor: "pointer",
                 }}
               >
-                Подтвердить анонимизацию
+                Подтвердить скрытие ПД
               </button>
             </div>
           </div>

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import styles from './WeekCalendar.module.css';
-import { getManagerSchedule } from '@/app/actions/leads';
+import { getManagerSchedule, getManagerScheduleList } from '@/app/actions/leads';
 
 interface WeekCalendarProps {
   managerId: string;
@@ -23,6 +23,19 @@ export default function WeekCalendar({ managerId, onBookSlot, onSelectSlot, refr
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [loading, setLoading] = useState(false);
   const [appointments, setAppointments] = useState<any[]>([]);
+  // Вид "Списком" — чтобы не листать календарь по неделям ради старых записей
+  const [viewMode, setViewMode] = useState<'CALENDAR' | 'LIST'>('CALENDAR');
+  const [allAppointments, setAllAppointments] = useState<any[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+
+  useEffect(() => {
+    if (!managerId || viewMode !== 'LIST') return;
+    setListLoading(true);
+    getManagerScheduleList(managerId).then(data => {
+      setAllAppointments(data || []);
+      setListLoading(false);
+    });
+  }, [managerId, viewMode, refreshTrigger]);
 
   // Находим понедельник текущей недели
   const getMonday = (d: Date) => {
@@ -120,15 +133,71 @@ export default function WeekCalendar({ managerId, onBookSlot, onSelectSlot, refr
       {/* Шапка управления календарем */}
       <div className={styles.calendarHeader}>
         <div className={styles.navGroup}>
-          <button className={styles.navBtn} onClick={handleToday}>Сегодня</button>
-          <button className={styles.navBtn} onClick={handlePrevWeek}>&larr;</button>
-          <button className={styles.navBtn} onClick={handleNextWeek}>&rarr;</button>
+          {viewMode === 'CALENDAR' && (
+            <>
+              <button className={styles.navBtn} onClick={handleToday}>Сегодня</button>
+              <button className={styles.navBtn} onClick={handlePrevWeek}>&larr;</button>
+              <button className={styles.navBtn} onClick={handleNextWeek}>&rarr;</button>
+            </>
+          )}
         </div>
-        <div className={styles.currentWeekText}>{formatWeekRange()}</div>
-        <div style={{ width: '80px' }}></div> {/* Spacer */}
+        <div className={styles.currentWeekText}>{viewMode === 'CALENDAR' ? formatWeekRange() : 'Все записи'}</div>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button
+            className={styles.navBtn}
+            style={viewMode === 'CALENDAR' ? { background: '#1e3a8a', color: 'white' } : undefined}
+            onClick={() => setViewMode('CALENDAR')}
+          >
+            Календарь
+          </button>
+          <button
+            className={styles.navBtn}
+            style={viewMode === 'LIST' ? { background: '#1e3a8a', color: 'white' } : undefined}
+            onClick={() => setViewMode('LIST')}
+          >
+            Списком
+          </button>
+        </div>
       </div>
 
-      {loading ? (
+      {viewMode === 'LIST' ? (
+        listLoading ? (
+          <div className={styles.loadingOverlay}>
+            <span>Загрузка списка...</span>
+          </div>
+        ) : allAppointments.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px', color: '#64748b' }}>Записей пока нет</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', borderBottom: '2px solid #f1f5f9', color: '#64748b', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                <th style={{ padding: '10px 12px' }}>Дата</th>
+                <th style={{ padding: '10px 12px' }}>Время</th>
+                <th style={{ padding: '10px 12px' }}>Клиент</th>
+                <th style={{ padding: '10px 12px' }}>Телефон</th>
+                <th style={{ padding: '10px 12px' }}>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allAppointments.map((app: any) => (
+                <tr
+                  key={app.id}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: onSelectSlot ? 'pointer' : 'default' }}
+                  onClick={() => onSelectSlot && onSelectSlot(app)}
+                >
+                  <td style={{ padding: '10px 12px', fontWeight: 700 }}>
+                    {(typeof app.date === 'string' ? app.date.split('T')[0] : getLocalDateString(new Date(app.date)))}
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>{app.time?.slice(0, 5)}</td>
+                  <td style={{ padding: '10px 12px' }}>{app.leadName}</td>
+                  <td style={{ padding: '10px 12px' }}>{app.leadPhone}</td>
+                  <td style={{ padding: '10px 12px' }}>{app.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      ) : loading ? (
         <div className={styles.loadingOverlay}>
           <span>⏳ Загрузка расписания...</span>
         </div>

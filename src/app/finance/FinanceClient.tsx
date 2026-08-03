@@ -223,19 +223,10 @@ export default function FinanceClient({
       <header className={styles.header}>
         <div className={styles.titleSection}>
           <h1>Управление финансами</h1>
-          <p className={styles.subtitle}>Автоматический разнос банковских выписок и ведение графиков оплат</p>
         </div>
 
         {canManage && (
           <div className={styles.actionsPanel}>
-            <button 
-              onClick={handleTbcSync} 
-              disabled={syncing} 
-              className={styles.btnPrimary}
-            >
-               {syncing ? 'Синхронизация...' : 'Синхронизировать TBC API'}
-            </button>
-
             <div className={styles.fileInputWrapper}>
               <button disabled={uploading} className={styles.btnSecondary}>
                  {uploading ? 'Загрузка...' : 'Загрузить выписку (Excel)'}
@@ -363,7 +354,6 @@ export default function FinanceClient({
                     <th>Плательщик</th>
                     <th>Сумма</th>
                     <th>Назначение платежа</th>
-                    <th>Источник</th>
                     <th>Статус</th>
                     <th>Действия</th>
                   </tr>
@@ -387,11 +377,6 @@ export default function FinanceClient({
                         <div className={styles.purposeText} title={tx.purpose}>
                           {tx.purpose}
                         </div>
-                      </td>
-                      <td>
-                        <span className={styles.badge} style={{ backgroundColor: '#f1f5f9', color: '#475569' }}>
-                          {tx.bank}
-                        </span>
                       </td>
                       <td>
                         <span className={`${styles.badge} ${tx.status === 'MATCHED' ? styles.badgeMatched : styles.badgeUnmatched}`}>

@@ -1181,6 +1181,22 @@ export async function getManagerSchedule(managerId: string, startDate: string) {
   }
 }
 
+// Полный список приёмов менеджера (все даты, а не только текущая неделя) — для просмотра
+// списком, чтобы не листать календарь неделя за неделей ради старых записей
+export async function getManagerScheduleList(managerId: string) {
+  try {
+    const slots: any[] = await prisma.$queryRaw`
+      SELECT * FROM "LeadSchedule"
+      WHERE "managerId" = ${managerId}
+      ORDER BY "date" DESC, "time" DESC
+    `;
+    return slots;
+  } catch (error) {
+    console.error('getManagerScheduleList error:', error);
+    return [];
+  }
+}
+
 // Записать лида на прием (забронировать слот)
 export async function bookScheduleSlot(data: {
   leadId: string;

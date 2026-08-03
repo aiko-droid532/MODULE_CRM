@@ -474,7 +474,15 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
   const [leadProjectFilter, setLeadProjectFilter] = useState('');
   const [draggedLead, setDraggedLead] = useState<any>(null);
   
-  const [clientSearch, setClientSearch] = useState({ query: '', source: '', date: '' });
+  const [clientSearch, setClientSearch] = useState({ query: '', sources: [] as string[], dateFrom: '', dateTo: '' });
+  const [clientSourceDropdownOpen, setClientSourceDropdownOpen] = useState(false);
+  const CLIENT_SOURCE_OPTIONS = ['Instagram', 'Krisha.kz', 'Facebook', 'Website', 'Referral'];
+  function toggleClientSourceFilter(value: string) {
+    setClientSearch(prev => ({
+      ...prev,
+      sources: prev.sources.includes(value) ? prev.sources.filter(v => v !== value) : [...prev.sources, value],
+    }));
+  }
 
   // Модальные окна
   const [isClientModalOpen, setIsClientModalOpen] = useState(false); // Для добавления клиентов
@@ -691,9 +699,11 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
   const filteredClients = activeClients.filter(client => {
     const matchQuery = client.name.toLowerCase().includes(clientSearch.query.toLowerCase()) || 
                        client.phone.includes(clientSearch.query);
-    const matchSource = clientSearch.source ? client.source === clientSearch.source : true;
-    const matchDate = clientSearch.date ? new Date(client.createdAt).toLocaleDateString() === new Date(clientSearch.date).toLocaleDateString() : true;
-    return matchQuery && matchSource && matchDate;
+    const matchSource = clientSearch.sources.length > 0 ? clientSearch.sources.includes(client.source) : true;
+    const clientDate = new Date(client.createdAt);
+    const matchDateFrom = clientSearch.dateFrom ? clientDate >= new Date(clientSearch.dateFrom) : true;
+    const matchDateTo = clientSearch.dateTo ? clientDate <= new Date(new Date(clientSearch.dateTo).getTime() + 24 * 60 * 60 * 1000 - 1) : true;
+    return matchQuery && matchSource && matchDateFrom && matchDateTo;
   });
 
   return (
@@ -778,12 +788,6 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
                 ))}
               </select>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>
-                <input type="checkbox" checked={autoAssign} onChange={e => setAutoAssign(e.target.checked)} />
-                Автораспределение новых лидов
-              </label>
-            </div>
           </div>
 
           {/* Канбан-доска лидов (Leads Kanban Board) */}
@@ -831,32 +835,20 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
 
                             {/* Телефон и мессенджеры */}
                             <div className={styles.leadPhoneBlock}>
-                              <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <span>Тел: {lead.phone}</span>
-                                {lead.callAttempts > 0 && (
-                                  <span className={styles.attemptsText}>Попыток: {lead.callAttempts}/3</span>
-                                )}
-                              </div>
-                              <div className={styles.messengerRow}>
-                                <a 
-                                  href={`https://wa.me/${lead.phone.replace(/[^0-9]/g, '')}`} 
-                                  target="_blank" 
-                                  rel="noreferrer" 
-                                  className={`${styles.messengerBtn} ${styles.waBtn}`} 
+                                <a
+                                  href={`https://wa.me/${lead.phone.replace(/[^0-9]/g, '')}`}
+                                  target="_blank"
+                                  rel="noreferrer"
                                   title="Открыть WhatsApp"
                                   onClick={(e) => e.stopPropagation()}
+                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '22px', height: '22px', borderRadius: '50%', background: '#25D366', flexShrink: 0 }}
                                 >
-                                  WhatsApp
-                                </a>
-                                <a 
-                                  href={`https://t.me/+${lead.phone.replace(/[^0-9]/g, '')}`} 
-                                  target="_blank" 
-                                  rel="noreferrer" 
-                                  className={`${styles.messengerBtn} ${styles.tgBtn}`} 
-                                  title="Открыть Telegram"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  Telegram
+                                  <svg viewBox="0 0 24 24" width="14" height="14" fill="white">
+                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+                                    <path d="M12.001 2C6.478 2 2 6.478 2 12c0 1.822.487 3.53 1.338 5.003L2 22l5.144-1.34A9.94 9.94 0 0012 22c5.523 0 10-4.478 10-10S17.523 2 12.001 2zm0 18.2a8.17 8.17 0 01-4.267-1.19l-.306-.182-3.058.797.817-2.981-.199-.307A8.17 8.17 0 013.8 12c0-4.526 3.674-8.2 8.2-8.2 4.526 0 8.2 3.674 8.2 8.2 0 4.526-3.674 8.2-8.199 8.2z" />
+                                  </svg>
                                 </a>
                               </div>
                             </div>
@@ -905,32 +897,32 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
                                   </button>
                                 ) : lead.status === 'IN_PROGRESS' ? (
                                   <>
-                                    <button 
-                                      className={`${styles.cardBtn} ${styles.successActionBtn}`} 
-                                      style={{ flex: '1 1 100%' }} 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowConvertModal(lead);
-                                      }}
-                                    >
-                                      В сделку
-                                    </button>
+                                    {(lead.callAttempts || 0) < 3 && (
+                                      <button
+                                        className={`${styles.cardBtn} ${styles.cardBtnSecondary}`}
+                                        style={{ flex: '1 1 100%' }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onCall(lead.id);
+                                        }}
+                                      >
+                                        Звонок ({(lead.callAttempts || 0)}/3)
+                                      </button>
+                                    )}
                                     <div style={{ display: 'flex', gap: '8px', width: '100%', marginTop: '4px' }}>
-                                      {(lead.callAttempts || 0) < 3 && (
-                                        <button 
-                                          className={`${styles.cardBtn} ${styles.cardBtnSecondary}`} 
-                                          style={{ flex: 1 }} 
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onCall(lead.id);
-                                          }}
-                                        >
-                                          Звонок ({(lead.callAttempts || 0)}/3)
-                                        </button>
-                                      )}
-                                      <button 
-                                        className={`${styles.cardBtn} ${styles.cardBtnSecondary}`} 
-                                        style={{ flex: 1 }} 
+                                      <button
+                                        className={`${styles.cardBtn} ${styles.successActionBtn}`}
+                                        style={{ flex: 1 }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setShowConvertModal(lead);
+                                        }}
+                                      >
+                                        В сделку
+                                      </button>
+                                      <button
+                                        className={`${styles.cardBtn} ${styles.cardBtnSecondary}`}
+                                        style={{ flex: 1 }}
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           onChangeStatus(lead.id, 'LOST');
@@ -1006,25 +998,52 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
             </div>
             
             <div className={styles.filterGroup}>
-              <select 
-                className={styles.selectInput}
-                value={clientSearch.source}
-                onChange={(e) => setClientSearch({...clientSearch, source: e.target.value})}
-              >
-                <option value="">Все источники</option>
-                <option value="Instagram">Instagram</option>
-                <option value="Krisha.kz">Krisha.kz</option>
-                <option value="Facebook">Facebook</option>
-                <option value="Website">Сайт</option>
-                <option value="Referral">Рекомендация</option>
-              </select>
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className={styles.selectInput}
+                  onClick={() => setClientSourceDropdownOpen(o => !o)}
+                  style={{ textAlign: 'left', cursor: 'pointer' }}
+                >
+                  {clientSearch.sources.length > 0 ? `Источники (${clientSearch.sources.length})` : 'Все источники'}
+                </button>
+                {clientSourceDropdownOpen && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 10 }} onClick={() => setClientSourceDropdownOpen(false)} />
+                    <div style={{
+                      position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 11,
+                      background: 'white', border: '1px solid #e2e8f0', borderRadius: '10px',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.1)', padding: '8px', minWidth: '180px',
+                    }}>
+                      {CLIENT_SOURCE_OPTIONS.map(opt => (
+                        <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', cursor: 'pointer', borderRadius: '6px' }}>
+                          <input type="checkbox" checked={clientSearch.sources.includes(opt)} onChange={() => toggleClientSourceFilter(opt)} />
+                          {opt === 'Website' ? 'Сайт' : opt === 'Referral' ? 'Рекомендация' : opt}
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
 
-              <input
-                type="date"
-                className={styles.dateInput}
-                value={clientSearch.date}
-                onChange={(e) => setClientSearch({...clientSearch, date: e.target.value})}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Дата создания:</span>
+                <input
+                  type="date"
+                  className={styles.dateInput}
+                  title="От"
+                  value={clientSearch.dateFrom}
+                  onChange={(e) => setClientSearch({...clientSearch, dateFrom: e.target.value})}
+                />
+                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}></span>
+                <input
+                  type="date"
+                  className={styles.dateInput}
+                  title="До"
+                  value={clientSearch.dateTo}
+                  onChange={(e) => setClientSearch({...clientSearch, dateTo: e.target.value})}
+                />
+              </div>
             </div>
           </div>
 
