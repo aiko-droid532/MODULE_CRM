@@ -30,6 +30,15 @@ import {
 } from '@/lib/promotionCalculator';
 import { canCreatePromotions, canApprovePromotions, canManagePrices, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel, UserRole } from '@/lib/roles';
 
+// Временно СКРЫТО по просьбе заказчика (не удалено!) — весь механизм порогов согласования
+// акции по роли (баннер "максимальная скидка", подсказка мин/макс у поля "Размер", блокировка
+// кнопки сохранения) и вкладка "Накопительные скидки". Логика остаётся рабочей в коде, просто
+// не показывается и не блокирует сохранение, пока флаг false. См. также такой же флаг
+// SHOW_PROMO_ROLE_LIMITS в src/app/actions/promotions.ts (серверная часть проверки порога).
+const SHOW_PROMO_ROLE_LIMITS = false;
+const SHOW_LOYALTY_TAB = false;
+const SHOW_PROMO_LIMITS_ANALYTICS_COLUMN = false;
+
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
   ACTIVE: 'Активна',
@@ -460,7 +469,9 @@ export default function PricingClient({ projects, initialPromotions, organizatio
       <div className={styles.tabs}>
         <button className={`${styles.tab} ${activeTab === 'promotions' ? styles.tabActive : ''}`} onClick={() => setActiveTab('promotions')}>Акции</button>
         <button className={`${styles.tab} ${activeTab === 'mic' ? styles.tabActive : ''}`} onClick={() => setActiveTab('mic')}>Массовое изменение цен</button>
-        <button className={`${styles.tab} ${activeTab === 'loyalty' ? styles.tabActive : ''}`} onClick={() => setActiveTab('loyalty')}>Накопительные скидки</button>
+        {SHOW_LOYALTY_TAB && (
+          <button className={`${styles.tab} ${activeTab === 'loyalty' ? styles.tabActive : ''}`} onClick={() => setActiveTab('loyalty')}>Накопительные скидки</button>
+        )}
         <button className={`${styles.tab} ${activeTab === 'analytics' ? styles.tabActive : ''}`} onClick={() => setActiveTab('analytics')}>Аналитика акций</button>
       </div>
 
@@ -573,7 +584,7 @@ export default function PricingClient({ projects, initialPromotions, organizatio
         </div>
       )}
 
-      {activeTab === 'loyalty' && (
+      {SHOW_LOYALTY_TAB && activeTab === 'loyalty' && (
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '24px', maxWidth: '760px' }}>
           <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 0 }}>
             Скидка применяется автоматически по количеству предыдущих покупок клиента (без учёта отменённых сделок, только на самого клиента — связанные лица пока не учитываются).
@@ -639,7 +650,7 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                 <th>Статус</th>
                 <th>Помещений</th>
                 <th>Сделок (активных / выиграно / отказ-расторжение)</th>
-                <th>Лимиты (общий / клиент / объект)</th>
+                {SHOW_PROMO_LIMITS_ANALYTICS_COLUMN && <th>Лимиты (общий / клиент / объект)</th>}
                 <th>Сумма скидок</th>
                 <th>Выручка по акции</th>
               </tr>
@@ -653,9 +664,11 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                     <td><span className={`${styles.badge} ${(styles as any)[STATUS_BADGE_CLASS[displayStatus]]}`}>{STATUS_LABELS[displayStatus]}</span></td>
                     <td>{p.unitsCount}</td>
                     <td>{p.activeDealsCount} / {p.wonDealsCount} / {p.lostDealsCount}</td>
-                    <td style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                      {p.totalLimit != null ? `${p.activeDealsCount}/${p.totalLimit}` : '—'} · {p.perClientLimit ?? '—'} · {p.perUnitLimit ?? '—'}
-                    </td>
+                    {SHOW_PROMO_LIMITS_ANALYTICS_COLUMN && (
+                      <td style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                        {p.totalLimit != null ? `${p.activeDealsCount}/${p.totalLimit}` : '—'} · {p.perClientLimit ?? '—'} · {p.perUnitLimit ?? '—'}
+                      </td>
+                    )}
                     <td>${Math.round(Number(p.totalDiscountUSD) || 0).toLocaleString()}</td>
                     <td>${Math.round(Number(p.totalRevenueUSD) || 0).toLocaleString()}</td>
                   </tr>
@@ -815,10 +828,10 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                       className={styles.input}
                       value={effectValue}
                       onChange={e => setEffectValue(Number(e.target.value))}
-                      {...(effectValueThresholdBoundary?.direction === 'max' ? { max: effectValueThresholdBoundary.value } : {})}
-                      {...(effectValueThresholdBoundary?.direction === 'min' ? { min: effectValueThresholdBoundary.value } : {})}
+                      {...(SHOW_PROMO_ROLE_LIMITS && effectValueThresholdBoundary?.direction === 'max' ? { max: effectValueThresholdBoundary.value } : {})}
+                      {...(SHOW_PROMO_ROLE_LIMITS && effectValueThresholdBoundary?.direction === 'min' ? { min: effectValueThresholdBoundary.value } : {})}
                     />
-                    {effectValueThresholdBoundary && (
+                    {SHOW_PROMO_ROLE_LIMITS && effectValueThresholdBoundary && (
                       <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '4px 0 0' }}>
                         {effectValueThresholdBoundary.direction === 'max'
                           ? `Вы можете создать черновик до ${getMaxDiscountPercent(role)}% или ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit}.`
@@ -854,7 +867,7 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                 <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '4px' }}>
                   Лимиты считаются по количеству сделок, к которым фактически применена акция (расторгнутые и отказные не считаются). Оставьте поле пустым, если ограничение не нужно.
                 </p>
-                {maxPromoDiscountPercent > 0 && (
+                {SHOW_PROMO_ROLE_LIMITS && maxPromoDiscountPercent > 0 && (
                   <div style={{
                     marginTop: '10px', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600,
                     background: promoDiscountAllowed ? '#f0fdf4' : '#fef2f2',
@@ -871,7 +884,7 @@ export default function PricingClient({ projects, initialPromotions, organizatio
 
             <div className={styles.modalFooter}>
               <button className={styles.secondaryBtn} onClick={() => { setShowConstructor(false); resetConstructor(); }}>Отмена</button>
-              <button className={styles.primaryBtn} onClick={handleSaveDraft} disabled={loading || finalUnits.length === 0 || !promoDiscountAllowed}>
+              <button className={styles.primaryBtn} onClick={handleSaveDraft} disabled={loading || finalUnits.length === 0 || (SHOW_PROMO_ROLE_LIMITS && !promoDiscountAllowed)}>
                 {loading ? 'Сохранение...' : editingId ? 'Сохранить изменения' : 'Сохранить как черновик'}
               </button>
             </div>

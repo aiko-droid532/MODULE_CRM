@@ -603,7 +603,7 @@ export async function getUnitActionHistory(unitId: string) {
     const events: any[] = [];
 
     bookings.forEach(b => {
-      const typeLabel = b.type === 'SOFT' ? 'Устная (Soft)' : b.type === 'HARD' ? 'Платная (Hard)' : 'Служебная';
+      const typeLabel = b.type === 'SOFT' ? 'Софт бронь' : b.type === 'HARD' ? 'Хард бронь' : 'Служебная';
       
       // Событие создания брони
       events.push({

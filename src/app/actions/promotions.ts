@@ -14,6 +14,12 @@ function toCustomerDiscountType(effectValueType: string): 'percent' | 'amount' {
   return effectValueType === 'PERCENT' ? 'percent' : 'amount';
 }
 
+// Временно СКРЫТО по просьбе заказчика (не удалено!) — см. такой же флаг SHOW_PROMO_ROLE_LIMITS
+// в src/app/pricing/PricingClient.tsx. Пока флаг false, checkPromotionDiscountThreshold ничего
+// не блокирует — оставлено, чтобы клиент и сервер вели себя одинаково (иначе клиент разрешил бы
+// сохранение, а сервер бы всё равно отклонял).
+const SHOW_PROMO_ROLE_LIMITS = false;
+
 // Порог согласования по роли применяем и к самой акции — не только к индивидуальной скидке
 // на сделке. Считаем по ХУДШЕМУ случаю среди всех помещений списка (у каждого своя каталожная
 // цена, поэтому один и тот же эффект даёт разный %), это покрывает все типы эффекта одинаково
@@ -24,6 +30,7 @@ async function checkPromotionDiscountThreshold(
   effect: { effectType: string; effectValueType: string; effectValue: number },
   nbgRate: number
 ): Promise<{ ok: boolean; reason?: string }> {
+  if (!SHOW_PROMO_ROLE_LIMITS) return { ok: true };
   if (!unitIds || unitIds.length === 0) return { ok: true };
   const units: any[] = await prisma.$queryRaw`
     SELECT price, area FROM "Unit" WHERE id IN (${Prisma.join(unitIds)})

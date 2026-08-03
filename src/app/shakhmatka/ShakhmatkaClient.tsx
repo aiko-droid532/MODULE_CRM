@@ -63,7 +63,12 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const [activeBlockId, setActiveBlockId] = useState(projects[0]?.blocks?.[0]?.id || null);
 
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [roomsFilter, setRoomsFilter] = useState('ALL');
+  const [roomsFilter, setRoomsFilter] = useState<string[]>([]);
+  const [roomsDropdownOpen, setRoomsDropdownOpen] = useState(false);
+  const ROOMS_FILTER_OPTIONS = ['1', '2', '3', '4', '5+'];
+  function toggleRoomsFilterOption(value: string) {
+    setRoomsFilter(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+  }
   const [priceFilter, setPriceFilter] = useState({ min: '', max: '' });
   const [areaFilter, setAreaFilter] = useState({ min: '', max: '' });
 
@@ -1221,10 +1226,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const getStatusName = (status: string) => {
     switch (status) {
       case 'FREE': return 'Свободна';
-      case 'SOFT_BOOKED': return 'Устная бронь';
-      case 'RESERVATION_ORAL': return 'Устная бронь';
-      case 'HARD_BOOKED': return 'Платная бронь';
-      case 'RESERVATION_PAID': return 'Платная бронь';
+      case 'SOFT_BOOKED': return 'Софт бронь';
+      case 'RESERVATION_ORAL': return 'Софт бронь';
+      case 'HARD_BOOKED': return 'Хард бронь';
+      case 'RESERVATION_PAID': return 'Хард бронь';
       case 'CONTRACT_SIGNED': return 'Договор подписан';
       case 'DOWN_PAYMENT_RECEIVED': return 'Взнос оплачен';
       case 'FULLY_PAID': return 'Полная оплата';
@@ -1272,14 +1277,12 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
       }
     }
 
-    if (roomsFilter !== 'ALL') {
-      if (roomsFilter === '4') {
-        if (unit.rooms !== 4) return true;
-      } else if (roomsFilter === '5+') {
-        if (unit.rooms < 5) return true;
-      } else {
-        if (unit.rooms?.toString() !== roomsFilter) return true;
-      }
+    if (roomsFilter.length > 0) {
+      const matches = roomsFilter.some(f => {
+        if (f === '5+') return unit.rooms >= 5;
+        return unit.rooms?.toString() === f;
+      });
+      if (!matches) return true;
     }
 
     if (priceFilter.min && unit.price < Number(priceFilter.min)) return true;
@@ -1323,19 +1326,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         <header className={styles.header}>
           <div className={styles.titleArea}>
             <h1>Умная Шахматка</h1>
-            <p>Мониторинг квартирографии в реальном времени · Курс: {rateLoading ? 'Загрузка...' : `${exchangeRate} ₾/$`}</p>
+            <p>Курс: {rateLoading ? 'Загрузка...' : `${exchangeRate} ₾/$`}</p>
           </div>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             {canUnits && <button className={styles.importBtn} onClick={() => setShowImportModal(true)}>Импорт Excel</button>}
-            {canPrices && (
-              <button
-                className={styles.massPriceBtn}
-                style={{ background: '#f8fafc', color: '#0f172a', border: '1.5px solid #cbd5e1' }}
-                onClick={() => router.push('/pricing')}
-              >
-                Ценообразование (Акции / МИЦ)
-              </button>
-            )}
             {canUnits && (
               <button
                 className={styles.massPriceBtn}
@@ -1345,14 +1339,15 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                 Конструктор ЖК
               </button>
             )}
-            {canUnits && <button className={styles.createUnitBtn} onClick={() => setShowCreateUnitModal(true)}>Новая квартира</button>}
-            <select value={activeProjectId || ''} onChange={(e) => {
-              setActiveProjectId(e.target.value);
-              const p = projects.find(x => x.id === e.target.value);
-              setActiveBlockId(p?.blocks?.[0]?.id || null);
-            }} className={styles.projectSelect}>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            {canUnits && (
+              <button
+                className={styles.massPriceBtn}
+                style={{ background: '#f8fafc', color: '#0f172a', border: '1.5px solid #cbd5e1' }}
+                onClick={() => setShowCreateUnitModal(true)}
+              >
+                Новая квартира
+              </button>
+            )}
           </div>
         </header>
 
@@ -1360,8 +1355,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         <div className={styles.statsRow}>
           <div className={styles.statMini}><div className={styles.statNum}>{stats.total}</div><div className={styles.statLabel}>Всего</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#16a34a'}}>{stats.free}</div><div className={styles.statLabel}>Свободно</div></div>
-          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#eab308'}}>{stats.soft}</div><div className={styles.statLabel}>Soft бронь</div></div>
-          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#ea580c'}}>{stats.hard}</div><div className={styles.statLabel}>Hard бронь</div></div>
+          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#eab308'}}>{stats.soft}</div><div className={styles.statLabel}>Софт бронь</div></div>
+          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#ea580c'}}>{stats.hard}</div><div className={styles.statLabel}>Хард бронь</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#b91c1c'}}>{stats.sold}</div><div className={styles.statLabel}>Продано</div></div>
         </div>
 
@@ -1374,25 +1369,49 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             <span className={styles.filterLabel}>Фильтры:</span>
+            <select value={activeProjectId || ''} onChange={(e) => {
+              setActiveProjectId(e.target.value);
+              const p = projects.find(x => x.id === e.target.value);
+              setActiveBlockId(p?.blocks?.[0]?.id || null);
+            }} className={styles.filterSelect}>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
             <select className={styles.filterSelect} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="ALL">Все статусы</option>
               <option value="FREE">Свободные</option>
-              <option value="SOFT">Устная бронь</option>
-              <option value="HARD">Платная бронь</option>
+              <option value="SOFT">Софт бронь</option>
+              <option value="HARD">Хард бронь</option>
               <option value="CONTRACT_SIGNED">Договор подписан</option>
-              <option value="DOWN_PAYMENT_RECEIVED">Взнос оплачен</option>
               <option value="SOLD">Продано / Оплачено</option>
               <option value="SERVICE">Служебное резервирование</option>
-              <option value="EXCLUDED">Исключена</option>
             </select>
-            <select className={styles.filterSelect} value={roomsFilter} onChange={e => setRoomsFilter(e.target.value)}>
-              <option value="ALL">Все комнаты</option>
-              <option value="1">1-комн.</option>
-              <option value="2">2-комн.</option>
-              <option value="3">3-комн.</option>
-              <option value="4">4-комн.</option>
-              <option value="5+">5+ комн.</option>
-            </select>
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className={styles.filterSelect}
+                onClick={() => setRoomsDropdownOpen(o => !o)}
+                style={{ textAlign: 'left' }}
+              >
+                Комнатность{roomsFilter.length > 0 ? ` (${roomsFilter.length})` : ''}
+              </button>
+              {roomsDropdownOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 10 }} onClick={() => setRoomsDropdownOpen(false)} />
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 11,
+                    background: 'white', border: '1px solid #e2e8f0', borderRadius: '10px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.1)', padding: '8px', minWidth: '160px',
+                  }}>
+                    {ROOMS_FILTER_OPTIONS.map(opt => (
+                      <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', cursor: 'pointer', borderRadius: '6px' }}>
+                        <input type="checkbox" checked={roomsFilter.includes(opt)} onChange={() => toggleRoomsFilterOption(opt)} />
+                        {opt === '5+' ? '5+ комн.' : `${opt}-комн.`}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             <input type="number" placeholder="Цена от" className={styles.filterInput} style={{ width: '100px' }} value={priceFilter.min} onChange={e => setPriceFilter({...priceFilter, min: e.target.value})} />
             <input type="number" placeholder="Цена до" className={styles.filterInput} style={{ width: '100px' }} value={priceFilter.max} onChange={e => setPriceFilter({...priceFilter, max: e.target.value})} />
           </div>
@@ -1401,13 +1420,11 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         {/* Легенда */}
         <div className={styles.legend}>
           <div className={styles.legendItem}><span className={styles.freeBox}></span> Свободна</div>
-          <div className={styles.legendItem}><span className={styles.softBookedBox}></span> Устная бронь</div>
-          <div className={styles.legendItem}><span className={styles.hardBookedBox}></span> Платная бронь</div>
+          <div className={styles.legendItem}><span className={styles.softBookedBox}></span> Софт бронь</div>
+          <div className={styles.legendItem}><span className={styles.hardBookedBox}></span> Хард бронь</div>
           <div className={styles.legendItem}><span className={styles.contractSignedBox}></span> Договор</div>
-          <div className={styles.legendItem}><span className={styles.downPaymentBox}></span> Взнос</div>
-          <div className={styles.legendItem}><span className={styles.fullyPaidBox}></span> Продано/NAPR</div>
+          <div className={styles.legendItem}><span className={styles.fullyPaidBox}></span> Продано</div>
           <div className={styles.legendItem}><span className={styles.serviceBox}></span> Служебная</div>
-          <div className={styles.legendItem}><span className={styles.excludedBox}></span> Исключена</div>
         </div>
 
         {/* Шахматка - сетка квартир */}
@@ -1452,16 +1469,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                               ) : (
                                 <>${Math.round(unit.price).toLocaleString()}<span className={styles.gelPrice}>{Math.round(unit.price * parseFloat(exchangeRate)).toLocaleString()} ₾</span></>
                               )
-                            ) : (
-                              <>
-                                {getStatusName(unit.status)}
-                                {lockedDealMap[unit.id] && (
-                                  <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#1e3a8a', marginTop: '2px' }}>
-                                    Договор: ${Math.round(lockedDealMap[unit.id].totalAmount).toLocaleString()}
-                                  </div>
-                                )}
-                              </>
-                            )}
+                            ) : getStatusName(unit.status)}
                           </div>
                           {unit.status === 'SOFT_BOOKED' && (
                             <div className={`${styles.timerBadge} ${promoMap[unit.id] ? styles.vipBadgeShifted : ''}`}>
@@ -1471,14 +1479,6 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                           {promoMap[unit.id] && (
                             <div className={styles.promoBadge} title={promoMap[unit.id].name}>
                               АКЦИЯ
-                            </div>
-                          )}
-                          {lockedDealMap[unit.id] && (
-                            <div
-                              className={styles.dealLockBadge}
-                              title={`Клиент: ${lockedDealMap[unit.id].leadName || '—'}${lockedDealMap[unit.id].promotionName ? ` · Акция: ${lockedDealMap[unit.id].promotionName}` : ''}`}
-                            >
-                              ДОГОВОР
                             </div>
                           )}
                           {unit.price > 300000 && unit.status === 'FREE' && (
@@ -1789,14 +1789,14 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 className={`${styles.bookingTypeTab} ${bookingType === 'SOFT' ? styles.bookingTypeTabActiveSoft : ''}`} 
                                 onClick={() => setBookingType('SOFT')}
                               >
-                                Устная (Soft)
+                                Софт бронь
                               </button>
-                              <button 
+                              <button
                                 type="button"
-                                className={`${styles.bookingTypeTab} ${bookingType === 'HARD' ? styles.bookingTypeTabActiveHard : ''}`} 
+                                className={`${styles.bookingTypeTab} ${bookingType === 'HARD' ? styles.bookingTypeTabActiveHard : ''}`}
                                 onClick={() => setBookingType('HARD')}
                               >
-                                Платная (Hard)
+                                Хард бронь
                               </button>
                               <button 
                                 type="button"
