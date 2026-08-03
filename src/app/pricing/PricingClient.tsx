@@ -821,8 +821,8 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                     {effectValueThresholdBoundary && (
                       <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '4px 0 0' }}>
                         {effectValueThresholdBoundary.direction === 'max'
-                          ? `Ваша роль (порог ${getMaxDiscountPercent(role)}%) может создать черновик до ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit} — больше потребует более высокую роль (см. подсказку ниже). Согласование на Active нужно в любом случае.`
-                          : `Ваша роль (порог ${getMaxDiscountPercent(role)}%) может создать черновик от ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit} и выше — меньше потребует более высокую роль (см. подсказку ниже). Согласование на Active нужно в любом случае.`}
+                          ? `Вы можете создать черновик до ${getMaxDiscountPercent(role)}% или ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit}.`
+                          : `Вы можете создать черновик до ${getMaxDiscountPercent(role)}% или ${effectValueThresholdBoundary.value}${effectValueThresholdBoundary.unit}.`}
                       </p>
                     )}
                   </div>
@@ -861,10 +861,9 @@ export default function PricingClient({ projects, initialPromotions, organizatio
                     color: promoDiscountAllowed ? '#166534' : '#dc2626',
                     border: `1px solid ${promoDiscountAllowed ? '#bbf7d0' : '#fecaca'}`
                   }}>
-                    Максимальная скидка по акции (худший случай среди помещений списка): {maxPromoDiscountPercent}%{promoDiscountAllowed
-                      ? ' — вы можете сохранить черновик такого размера.'
-                      : ` — превышает ваш порог (до ${getMaxDiscountPercent(role)}%). Создать черновик такого размера может только роль: ${getRequiredApproverLabel(maxPromoDiscountPercent)}.`}
-                    {' '}Согласование на Active потребуется в любом случае — от РОП/админа.
+                    Максимальная скидка по акции (среди помещений списка): {maxPromoDiscountPercent}%{promoDiscountAllowed
+                      ? ' — вы можете сохранить черновик.'
+                      : ` — превышает ваш порог (до ${getMaxDiscountPercent(role)}%). Создать акцию такого размера может только ${getRequiredApproverLabel(maxPromoDiscountPercent)}.`}
                   </div>
                 )}
               </div>
