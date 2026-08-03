@@ -271,6 +271,14 @@ export default function ContractsClient({
     }
   };
 
+  const ROLE_TRANSLATIONS: Record<string, string> = {
+  lawyer: 'юрист',
+  manager: 'менеджер',
+  admin: 'администратор',
+  rop: 'руководитель ОП',
+  // другие роли при необходимости
+};
+
   // Открытие просмотра договора
   const handleOpenDetails = async (contract: any) => {
     setLoading(true);
@@ -1034,7 +1042,7 @@ export default function ContractsClient({
                             ) : item.action === "CONTRACT_COMMENT" ? (
                               <div>
                                 <span style={{ color: "#b45309", fontWeight: 700 }}>
-                                   Уточнение{item.reason ? ` (${item.reason.replace('Роль: ', '')})` : ''}:
+                                   Уточнение{item.reason ? ` (${ROLE_TRANSLATIONS[item.reason.replace('Роль: ', '')] || item.reason.replace('Роль: ', '')})` : ''}:
                                 </span>
                                 <div style={{ marginTop: "4px", padding: "8px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", whiteSpace: "pre-wrap" }}>
                                   {item.newValue}

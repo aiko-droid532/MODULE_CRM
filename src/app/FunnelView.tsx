@@ -31,7 +31,6 @@ const STAGE_COLORS: Record<string, string> = {
   CANCELLED: "#64748b",
 };
 
-// Соответствие строго схеме БД
 const STAGE_HIERARCHY: Record<string, number> = {
   NEW_LEAD: 0,
   CLARIFICATION: 1,
@@ -63,19 +62,13 @@ function formatMoney(amount: number): string {
   return `$${Math.round(amount)}`;
 }
 
-// Форматирование времени по ТЗ: "N день N час N минут" или "N часов N минут"
 function formatDuration(minutes: number): string {
   if (minutes <= 0) return "0 мин.";
   const d = Math.floor(minutes / (24 * 60));
   const h = Math.floor((minutes % (24 * 60)) / 60);
   const m = minutes % 60;
-
-  if (d > 0) {
-    return `${d} дн. ${h} ч. ${m} мин.`;
-  }
-  if (h > 0) {
-    return `${h} ч. ${m} мин.`;
-  }
+  if (d > 0) return `${d} дн. ${h} ч. ${m} мин.`;
+  if (h > 0) return `${h} ч. ${m} мин.`;
   return `${m} мин.`;
 }
 
@@ -117,20 +110,27 @@ export default function FunnelView({
     }, 100);
   };
 
-  // Фильтр сделок для выбранной плашки (с учетом Pipeline или Conversion)
+  // Фильтр сделок для выбранной плашки
   const filteredDeals = selectedStage
     ? deals.filter((d) => {
         if (viewMode === "pipeline") {
           if (selectedStage.type === "group" && selectedStage.statusKeys) {
             return selectedStage.statusKeys.includes(d.status);
           }
+          // Для объединённого статуса "CANCELLED" будем использовать statusKeys
+          if (selectedStage.key === "CANCELLED" && selectedStage.statusKeys) {
+            return selectedStage.statusKeys.includes(d.status);
+          }
           return d.status === selectedStage.key;
         } else {
-          // Conversion View - кумулятивный проход этапа
           if (selectedStage.type === "group" && selectedStage.statusKeys) {
-            // Прошел хотя бы первый статус в группе
             const firstKey = selectedStage.statusKeys[0];
             const targetIndex = STAGE_HIERARCHY[firstKey] || 0;
+            return getDealIndex(d.status) >= targetIndex;
+          }
+          if (selectedStage.key === "CANCELLED" && selectedStage.statusKeys) {
+            // Для объединённого статуса используем минимальный ранг (FAILED = 16)
+            const targetIndex = 16;
             return getDealIndex(d.status) >= targetIndex;
           }
           const targetIndex = STAGE_HIERARCHY[selectedStage.key] || 0;
@@ -139,9 +139,108 @@ export default function FunnelView({
       })
     : [];
 
+  // ---- Функция для рендера одной строки воронки (общая для обычных и объединённой) ----
+  const renderFunnelRow = (
+    key: string,
+    label: string,
+    count: number,
+    money: number,
+    avgTimeMinutes: number,
+    color: string,
+    isGroup: boolean = false,
+    isChild: boolean = false,
+    hideTime: boolean = false,
+    isFinancialStage: boolean = true,
+    onClick: () => void,
+    statusKeys?: string[],
+  ) => {
+    const totalDeals = deals.length;
+    const percentage = totalDeals > 0 ? Math.round((count / totalDeals) * 100) : 0;
+
+    return (
+      <div
+        key={key}
+        className={`${styles.funnelRow} ${isGroup ? styles.groupRow : ""} ${isChild ? styles.childRow : ""}`}
+        onClick={onClick}
+        style={{ cursor: "pointer" }}
+      >
+        <div
+          className={`${styles.statusLabel} ${isGroup ? styles.groupLabel : ""} ${isChild ? styles.childLabel : ""}`}
+        >
+          {isGroup && (
+            <span
+              className={styles.expandIcon}
+              onClick={(e) => toggleGroup(e, key)}
+            >
+              {/* иконка при необходимости */}
+            </span>
+          )}
+          <div className={styles.labelMain}>
+            <div className={styles.labelText}>
+              {isChild && <span className={styles.childConnector}></span>}
+              <span>{label}</span>
+            </div>
+            {!hideTime && (
+              <div className={styles.timeBadge} title="Среднее время на этапе">
+                {formatDuration(avgTimeMinutes)}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={styles.barWrapper}>
+          <div
+            className={`${styles.funnelBar} ${isGroup ? styles.groupBar : ""}`}
+            style={{
+              width: `${Math.max(percentage, 10)}%`,
+              background:
+                count > 0
+                  ? `linear-gradient(135deg, ${color}, ${color}cc)`
+                  : "#f1f5f9",
+              boxShadow: count > 0 ? `0 4px 14px ${color}20` : "none",
+              border: count > 0 ? "none" : "1px dashed #cbd5e1",
+              borderRadius: "8px",
+              transition: "all 400ms ease",
+            }}
+          >
+            <span
+              className={styles.barText}
+              style={{
+                color: count > 0 ? "#ffffff" : "#94a3b8",
+                textShadow: count > 0 ? "0 1px 3px rgba(0,0,0,0.25)" : "none",
+              }}
+            >
+              {percentage}%
+            </span>
+          </div>
+        </div>
+
+        <div className={styles.rightInfo}>
+          <span className={styles.countLabel}>{count} сделок</span>
+          {isFinancialStage ? (
+            <span className={styles.moneyLabel} style={{ color }}>
+              {formatMoney(money)}
+            </span>
+          ) : (
+            <span
+              className={styles.moneyLabel}
+              style={{
+                color: "#94a3b8",
+                fontStyle: "italic",
+                fontSize: "0.65rem",
+              }}
+            >
+              без объекта
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
-      {/* Переключатель режимов воронки по ТЗ (DEA-009) */}
+      {/* Переключатель режимов */}
       <div
         style={{
           display: "flex",
@@ -199,8 +298,10 @@ export default function FunnelView({
       </div>
 
       <div className={styles.funnelContainer}>
+        {/* Основной перебор structure, исключая FAILED и CANCELLED (они будут объединены отдельно) */}
         {structure.map((item) => {
-          if (item.key === "FAILED" || item.key === "CANCELLED") return null; // Не показываем потерянные в пирамиде — они идут отдельно ниже
+          // Пропускаем статусы, которые будут в объединённой строке
+          if (item.key === "FAILED" || item.key === "CANCELLED") return null;
 
           const isGroup = item.type === "group";
           const isChild = item.type === "child";
@@ -213,9 +314,7 @@ export default function FunnelView({
           }
 
           let stageDeals: any[] = [];
-
           if (viewMode === "pipeline") {
-            // Pipeline view: только сделки в текущем статусе
             if (isGroup && item.statusKeys) {
               stageDeals = deals.filter((d) =>
                 item.statusKeys?.includes(d.status),
@@ -224,7 +323,6 @@ export default function FunnelView({
               stageDeals = deals.filter((d) => d.status === item.key);
             }
           } else {
-            // Conversion view: все сделки, прошедшие данный статус (кумулятивно)
             if (isGroup && item.statusKeys) {
               const firstKey = item.statusKeys[0];
               const targetIndex = STAGE_HIERARCHY[firstKey] || 0;
@@ -244,186 +342,79 @@ export default function FunnelView({
             (sum, d) => sum + (d.unit?.price || 0),
             0,
           );
-
-          // Рассчитываем среднее время пребывания на статусе (по ТЗ)
           const totalMins = stageDeals.reduce((sum, d) => {
             const diff = new Date().getTime() - new Date(d.updatedAt).getTime();
             return sum + Math.floor(diff / (1000 * 60));
           }, 0);
           const avgTimeMinutes = count > 0 ? Math.floor(totalMins / count) : 0;
-
-          // Процент относительно всех сделок в воронке для построения конуса
-          const totalDeals = deals.length;
-          const percentage =
-            totalDeals > 0 ? Math.round((count / totalDeals) * 100) : 0;
           const color = STAGE_COLORS[item.key] || "#6366f1";
-
-          // По ТЗ деньги суммируем только со стадии Личная консультация (CONSULTATION, ранг >= 5)
           const currentRank = STAGE_HIERARCHY[item.key] || 0;
           const isFinancialStage = currentRank >= 5;
+          const hideTime =
+            item.key === "SUCCESS" || item.key === "WON" || item.key === "FAILED" || item.key === "CANCELLED";
 
-          return (
-            <div
-              key={item.key}
-              className={`${styles.funnelRow} ${isGroup ? styles.groupRow : ""} ${isChild ? styles.childRow : ""}`}
-              onClick={() => openModal(item)}
-              style={{ cursor: "pointer" }}
-            >
-              <div
-                className={`${styles.statusLabel} ${isGroup ? styles.groupLabel : ""} ${isChild ? styles.childLabel : ""}`}
-              >
-                {isGroup && (
-                  <span
-                    className={styles.expandIcon}
-                    onClick={(e) => toggleGroup(e, item.key)}
-                  >
-                    {expandedGroups[item.key] ? "" : ""}
-                  </span>
-                )}
-                <div className={styles.labelMain}>
-                  <div className={styles.labelText}>
-                    {isChild && <span className={styles.childConnector}></span>}
-                    <span>{item.label}</span>
-                  </div>
-                  <div
-                    className={styles.timeBadge}
-                    title="Среднее время на этапе"
-                  >
-                    {formatDuration(avgTimeMinutes)}
-                  </div>
-                </div>
-              </div>
-
-              <div className={styles.barWrapper}>
-                <div
-                  className={`${styles.funnelBar} ${isGroup ? styles.groupBar : ""}`}
-                  style={{
-                    width: `${Math.max(percentage, 10)}%`, // min 10% по ТЗ
-                    background:
-                      count > 0
-                        ? `linear-gradient(135deg, ${color}, ${color}cc)`
-                        : "#f1f5f9",
-                    boxShadow: count > 0 ? `0 4px 14px ${color}20` : "none",
-                    border: count > 0 ? "none" : "1px dashed #cbd5e1",
-                    borderRadius: "8px",
-                    transition: "all 400ms ease",
-                  }}
-                >
-                  <span
-                    className={styles.barText}
-                    style={{
-                      color: count > 0 ? "#ffffff" : "#94a3b8",
-                      textShadow:
-                        count > 0 ? "0 1px 3px rgba(0, 0, 0, 0.25)" : "none",
-                    }}
-                  >
-                    {percentage}%
-                  </span>
-                </div>
-              </div>
-
-              <div className={styles.rightInfo}>
-                <span className={styles.countLabel}>{count} сделок</span>
-                {isFinancialStage ? (
-                  <span className={styles.moneyLabel} style={{ color }}>
-                    {formatMoney(money)}
-                  </span>
-                ) : (
-                  <span
-                    className={styles.moneyLabel}
-                    style={{
-                      color: "#94a3b8",
-                      fontStyle: "italic",
-                      fontSize: "0.65rem",
-                    }}
-                  >
-                    без объекта
-                  </span>
-                )}
-              </div>
-            </div>
+          return renderFunnelRow(
+            item.key,
+            item.label,
+            count,
+            money,
+            avgTimeMinutes,
+            color,
+            isGroup,
+            isChild,
+            hideTime,
+            isFinancialStage,
+            () => openModal(item),
+            item.statusKeys,
           );
         })}
-      </div>
 
-      {/* Cancelled — отображается только в Pipeline View, отдельно от основной воронки */}
-      {viewMode === "pipeline" &&
-        (() => {
-          const cancelledDeals = deals.filter(
-            (d) => d.status === "CANCELLED" || d.status === "FAILED",
+        {/* ---- ОБЪЕДИНЁННАЯ СТРОКА ДЛЯ LOST / CANCELLED ---- */}
+        {(() => {
+          const lostCancelledDeals = deals.filter(
+            (d) => d.status === "FAILED" || d.status === "CANCELLED",
           );
-          const count = cancelledDeals.length;
-          const totalDeals = deals.length;
-          const percentage =
-            totalDeals > 0 ? Math.round((count / totalDeals) * 100) : 0;
-          const totalMins = cancelledDeals.reduce((sum, d) => {
-            const diff = new Date().getTime() - new Date(d.updatedAt).getTime();
-            return sum + Math.floor(diff / (1000 * 60));
-          }, 0);
-          const avgTimeMinutes = count > 0 ? Math.floor(totalMins / count) : 0;
+          const count = lostCancelledDeals.length;
+          const money = 0; // не показываем деньги
+          const avgTimeMinutes = 0; // время не показываем
+          const color = STAGE_COLORS["CANCELLED"] || "#64748b";
+          const hideTime = true;
+          const isFinancialStage = false; // без объекта
 
-          return (
-            <div
-              style={{
-                marginTop: "8px",
-                paddingTop: "8px",
-                borderTop: "2px dashed #e2e8f0",
-              }}
-            >
-              <div
-                className={styles.funnelRow}
-                style={{ cursor: "default", opacity: 0.75 }}
-              >
-                <div className={styles.funnelLeft}>
-                  <span
-                    className={styles.stageName}
-                    style={{ color: "#64748b" }}
-                  >
-                    Cancelled
-                  </span>
-                  <span className={styles.stageTime}>
-                    {formatDuration(avgTimeMinutes)}
-                  </span>
-                </div>
-                <div className={styles.funnelBar}>
-                  <div
-                    className={styles.funnelBarFill}
-                    style={{
-                      width: `${percentage}%`,
-                      backgroundColor: "#94a3b8",
-                      minWidth: count > 0 ? "40px" : "0",
-                    }}
-                  >
-                    {count > 0 && (
-                      <span className={styles.barLabel}>{percentage}%</span>
-                    )}
-                  </div>
-                  {count === 0 && (
-                    <span style={{ color: "#94a3b8", fontSize: "0.8rem" }}>
-                      0%
-                    </span>
-                  )}
-                </div>
-                <div className={styles.funnelRight}>
-                  <span
-                    className={styles.dealCount}
-                    style={{ color: "#64748b" }}
-                  >
-                    {count} сделок
-                  </span>
-                  <span
-                    className={styles.dealMoney}
-                    style={{ color: "#94a3b8" }}
-                  >
-                    без объекта
-                  </span>
-                </div>
-              </div>
-            </div>
+          // Для модального окна создадим фиктивный элемент, который будет вести себя как группа
+          const mergedItem: FunnelItem = {
+            key: "CANCELLED_MERGED",
+            label: "CANCELLED",
+            type: "group",
+            statusKeys: ["FAILED", "CANCELLED"],
+          };
+
+          return renderFunnelRow(
+            mergedItem.key,
+            mergedItem.label,
+            count,
+            money,
+            avgTimeMinutes,
+            color,
+            false, // не группа (но можно сделать как группу, если нужно)
+            false,
+            hideTime,
+            isFinancialStage,
+            () => {
+              // Открываем модалку с фильтром по обоим статусам
+              setSelectedStage(mergedItem);
+              setTimeout(() => {
+                document
+                  .getElementById("detail-view")
+                  ?.scrollIntoView({ behavior: "smooth" });
+              }, 100);
+            },
+            mergedItem.statusKeys,
           );
         })()}
+      </div>
 
-      {/* Drill-down "Окно подробно" при клике на полосу воронки (ТЗ DEA-006) */}
+      {/* Детальное окно (модалка) */}
       {selectedStage && (
         <div className={styles.detailCard} id="detail-view">
           <div className={styles.detailHeader}>
@@ -433,7 +424,7 @@ export default function FunnelView({
                 style={{
                   backgroundColor: STAGE_COLORS[selectedStage.key] || "#6366f1",
                 }}
-              ></div>
+              />
               <div>
                 <h3>
                   Детальная аналитика: {selectedStage.label} (
@@ -513,11 +504,6 @@ export default function FunnelView({
                   </thead>
                   <tbody>
                     {filteredDeals.map((deal) => {
-                      const daysInStatus = Math.floor(
-                        (new Date().getTime() -
-                          new Date(deal.updatedAt).getTime()) /
-                          (1000 * 60 * 60 * 24),
-                      );
                       const totalMinutesInStatus = Math.floor(
                         (new Date().getTime() -
                           new Date(deal.updatedAt).getTime()) /
@@ -573,7 +559,7 @@ export default function FunnelView({
             </div>
 
             <div className={styles.analystNote}>
-              <div className={styles.noteIcon}></div>
+              <div className={styles.noteIcon} />
               <p>
                 Аналитика воронки рассчитывается динамически в реальном времени
                 на основе сделок вашей компании. Вы можете переключать
