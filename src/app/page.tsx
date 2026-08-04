@@ -80,6 +80,7 @@ export default async function DashboardPage({
           d."paymentType" as "dealPaymentType",
           d."downPayment" as "dealDownPayment",
           d."totalAmount" as "dealTotalAmount",
+          d."previousStatus" as "dealPreviousStatus",
           d."createdAt" as "dealCreatedAt",
           d."updatedAt" as "dealUpdatedAt",
           l.id as "leadId",
@@ -119,6 +120,7 @@ export default async function DashboardPage({
     dealsWithDetails = (rawDeals as any[]).map(d => ({
       id: d.dealId,
       status: d.dealStatus,
+      previousStatus: d.dealPreviousStatus,
       organizationId: d.dealOrgId,
       managerId: d.dealManagerId,
       paymentType: d.dealPaymentType,

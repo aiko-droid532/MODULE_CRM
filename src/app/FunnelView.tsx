@@ -52,7 +52,16 @@ const STAGE_HIERARCHY: Record<string, number> = {
   CANCELLED: 17,
 };
 
-function getDealIndex(status: string): number {
+// Для CANCELLED/FAILED ранг в STAGE_HIERARCHY (16/17) существует только для порядка
+// отображения объединённой строки внизу списка — сам по себе он не означает "прошёл
+// дальше всех остальных". Поэтому для Conversion View (кумулятивный подсчёт "дошёл ли
+// до этого этапа") у отменённых/проваленных сделок берём ранг их предыдущего статуса
+// (этап, на котором сделка реально была перед отменой), а не ранг самого CANCELLED/FAILED —
+// иначе такие сделки задним числом "проходили" вообще все этапы воронки, включая WON.
+function getDealIndex(status: string, previousStatus?: string | null): number {
+  if ((status === "FAILED" || status === "CANCELLED") && previousStatus && STAGE_HIERARCHY[previousStatus] !== undefined) {
+    return STAGE_HIERARCHY[previousStatus];
+  }
   return STAGE_HIERARCHY[status] !== undefined ? STAGE_HIERARCHY[status] : 0;
 }
 
@@ -113,12 +122,14 @@ export default function FunnelView({
   // Фильтр сделок для выбранной плашки
   const filteredDeals = selectedStage
     ? deals.filter((d) => {
+        // Объединённая строка Cancelled (FAILED + CANCELLED) — это терминальные статусы,
+        // а не этап воронки, поэтому кумулятивный подсчёт "дошёл ли до этапа" к ней не
+        // применим ни в одном из режимов — всегда прямое совпадение текущего статуса.
+        if (selectedStage.key === "CANCELLED_MERGED" && selectedStage.statusKeys) {
+          return selectedStage.statusKeys.includes(d.status);
+        }
         if (viewMode === "pipeline") {
           if (selectedStage.type === "group" && selectedStage.statusKeys) {
-            return selectedStage.statusKeys.includes(d.status);
-          }
-          // Для объединённого статуса "CANCELLED" будем использовать statusKeys
-          if (selectedStage.key === "CANCELLED" && selectedStage.statusKeys) {
             return selectedStage.statusKeys.includes(d.status);
           }
           return d.status === selectedStage.key;
@@ -126,15 +137,10 @@ export default function FunnelView({
           if (selectedStage.type === "group" && selectedStage.statusKeys) {
             const firstKey = selectedStage.statusKeys[0];
             const targetIndex = STAGE_HIERARCHY[firstKey] || 0;
-            return getDealIndex(d.status) >= targetIndex;
-          }
-          if (selectedStage.key === "CANCELLED" && selectedStage.statusKeys) {
-            // Для объединённого статуса используем минимальный ранг (FAILED = 16)
-            const targetIndex = 16;
-            return getDealIndex(d.status) >= targetIndex;
+            return getDealIndex(d.status, d.previousStatus) >= targetIndex;
           }
           const targetIndex = STAGE_HIERARCHY[selectedStage.key] || 0;
-          return getDealIndex(d.status) >= targetIndex;
+          return getDealIndex(d.status, d.previousStatus) >= targetIndex;
         }
       })
     : [];
@@ -327,12 +333,12 @@ export default function FunnelView({
               const firstKey = item.statusKeys[0];
               const targetIndex = STAGE_HIERARCHY[firstKey] || 0;
               stageDeals = deals.filter(
-                (d) => getDealIndex(d.status) >= targetIndex,
+                (d) => getDealIndex(d.status, d.previousStatus) >= targetIndex,
               );
             } else {
               const targetIndex = STAGE_HIERARCHY[item.key] || 0;
               stageDeals = deals.filter(
-                (d) => getDealIndex(d.status) >= targetIndex,
+                (d) => getDealIndex(d.status, d.previousStatus) >= targetIndex,
               );
             }
           }
@@ -384,7 +390,7 @@ export default function FunnelView({
           // Для модального окна создадим фиктивный элемент, который будет вести себя как группа
           const mergedItem: FunnelItem = {
             key: "CANCELLED_MERGED",
-            label: "CANCELLED",
+            label: "Cancelled",
             type: "group",
             statusKeys: ["FAILED", "CANCELLED"],
           };
@@ -556,15 +562,6 @@ export default function FunnelView({
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <div className={styles.analystNote}>
-              <div className={styles.noteIcon} />
-              <p>
-                Аналитика воронки рассчитывается динамически в реальном времени
-                на основе сделок вашей компании. Вы можете переключать
-                представления, чтобы анализировать конверсии переходов.
-              </p>
             </div>
           </div>
         </div>
