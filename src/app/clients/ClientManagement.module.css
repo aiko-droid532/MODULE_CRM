@@ -38,7 +38,7 @@
   margin: 0 auto;
   background: var(--bg-main);
   min-height: 100vh;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Times New Roman', Times, serif;
   color: var(--text-main);
 }
 
