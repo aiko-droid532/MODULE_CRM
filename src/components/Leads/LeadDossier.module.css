@@ -1094,19 +1094,20 @@
 
 .installmentCompactCardBody {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
 }
 
 .installmentCompactFieldGroup {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .installmentCompactFieldGroup input {
-  max-width: 60px;   
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
 }
 
 .installmentCompactFieldLabel {
