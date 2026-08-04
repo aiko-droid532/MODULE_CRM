@@ -773,10 +773,16 @@ const handleSetPrimaryClient = async (leadId: string) => {
                         <div className={styles.clientNameSmall}>{deal.clientName || 'Без имени'}</div>
 
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px'}}>
-                          <span className={styles.priceTagSmall} title={deal.priceLocked ? 'Цена зафиксирована (Договор)' : deal.hasActivePromo ? 'Цена по акции' : undefined}>
-                            {deal.hasActivePromo && <span style={{ marginRight: '3px', color: '#dc2626' }}>%</span>}
-                            {(deal.workingPrice ?? deal.unit?.price) ? `$${Math.round(deal.workingPrice ?? deal.unit.price).toLocaleString()}` : '—'}
-                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span className={styles.priceTagSmall} title={deal.priceLocked ? 'Цена зафиксирована (Договор)' : undefined}>
+                              {deal.unit?.price ? `$${Math.round(deal.unit.price).toLocaleString()}` : '—'}
+                            </span>
+                            {deal.hasActivePromo && deal.workingPrice != null && (
+                              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#dc2626' }}>
+                                С учётом акций: ${Math.round(deal.workingPrice).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
 
                           {/* SLA тикер дней на этапе */}
                           <span style={{
@@ -883,9 +889,15 @@ const handleSetPrimaryClient = async (leadId: string) => {
                                   {deal.clientName || 'Без имени'}
                                 </div>
 
-                                <div className={styles.priceTagSmall} title={deal.priceLocked ? 'Цена зафиксирована (Договор)' : deal.hasActivePromo ? 'Цена по акции' : undefined}>
-                                  {deal.hasActivePromo && <span style={{ marginRight: '3px', color: '#dc2626' }}>%</span>}
-                                  {(deal.workingPrice ?? deal.unit?.price) ? `$${Math.round(deal.workingPrice ?? deal.unit.price).toLocaleString()}` : '—'}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <div className={styles.priceTagSmall} title={deal.priceLocked ? 'Цена зафиксирована (Договор)' : undefined}>
+                                    {deal.unit?.price ? `$${Math.round(deal.unit.price).toLocaleString()}` : '—'}
+                                  </div>
+                                  {deal.hasActivePromo && deal.workingPrice != null && (
+                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#dc2626' }}>
+                                      С учётом акций: ${Math.round(deal.workingPrice).toLocaleString()}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             ))
