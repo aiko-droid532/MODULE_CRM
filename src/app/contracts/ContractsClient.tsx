@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./Contracts.module.css";
 import {
   createTemplate,
@@ -29,6 +30,7 @@ export default function ContractsClient({
   userRole = 'manager',
   managerId = '',
 }: ContractsClientProps) {
+  const router = useRouter();
   const role = userRole as UserRole;
   const canManage = canManageContracts(role);
   const canApprove = canApproveContracts(role);
@@ -294,14 +296,54 @@ export default function ContractsClient({
         },
       }),
     }).catch(() => {});
-    const [html, historyRes] = await Promise.all([
-      generateContractHtml(contract.id),
-      getContractHistory(contract.id),
-    ]);
-    setGeneratedHtml(html);
-    setContractHistory(historyRes.history || []);
+    // Открываем карточку сразу, не дожидаясь генерации HTML/истории —
+    // они подгрузятся следом и обновят уже открытую карточку.
     setSelectedContract(contract);
-    setLoading(false);
+    setGeneratedHtml("");
+    setContractHistory([]);
+    try {
+      const [html, historyRes] = await Promise.all([
+        generateContractHtml(contract.id),
+        getContractHistory(contract.id),
+      ]);
+      setGeneratedHtml(html);
+      setContractHistory(historyRes.history || []);
+    } catch (e) {
+      console.error("Failed to load contract details:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Автооткрытие карточки договора при возврате из Шахматки/Сделки (openContractId)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openContractId = params.get("openContractId");
+    if (openContractId && contracts.length > 0) {
+      const found = contracts.find((c: any) => c.id === openContractId);
+      if (found) {
+        handleOpenDetails(found);
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.delete("openContractId");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }, [contracts]);
+
+  // Переход в шахматку к объекту договора, с возвратом обратно в эту карточку
+  const openUnitInShakhmatka = () => {
+    if (!selectedContract?.unitId) return;
+    router.push(
+      `/shakhmatka?highlightUnitId=${selectedContract.unitId}&backToContractId=${selectedContract.id}`
+    );
+  };
+
+  // Переход в раздел Сделки к сделке договора, с возвратом обратно в эту карточку
+  const openDealForContract = () => {
+    if (!selectedContract?.dealId) return;
+    router.push(
+      `/deals?highlightDealId=${selectedContract.dealId}&backToContractId=${selectedContract.id}`
+    );
   };
 
   // Печать договора
@@ -960,11 +1002,12 @@ export default function ContractsClient({
                   </div>
                   <div className={styles.metaRow}>
                     <span>Сделка:</span>
-                    <span>
-                      $
-                      {new Intl.NumberFormat().format(
-                        selectedContract.dealAmount,
-                      )}
+                    <span
+                      onClick={openDealForContract}
+                      title="Открыть сделку"
+                      style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }}
+                    >
+                      #{selectedContract.dealId?.slice(0, 8)}
                     </span>
                   </div>
                   <div className={styles.metaRow}>
@@ -973,7 +1016,13 @@ export default function ContractsClient({
                   </div>
                   <div className={styles.metaRow}>
                     <span>Объект:</span>
-                    <span>Квартира №{selectedContract.unitNumber}</span>
+                    <span
+                      onClick={openUnitInShakhmatka}
+                      title="Открыть в шахматке"
+                      style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }}
+                    >
+                      Квартира №{selectedContract.unitNumber}
+                    </span>
                   </div>
                 </div>
 

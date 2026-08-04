@@ -53,16 +53,14 @@ export async function searchUnits(filters: {
 export async function addInterest(leadId: string, unitId: string) {
   try {
     const id = crypto.randomUUID();
-    // 1. Создаем интерес лида
+    // Создаём интерес лида. Статус квартиры больше не меняем автоматически —
+    // квартира должна оставаться свободной, пока менеджер сам не поставит
+    // ручную бронь через шахматку (см. booking.ts). Раньше это молча переводило
+    // квартиру в RESERVATION_ORAL без создания записи в Booking, из-за чего
+    // бронь потом было невозможно снять через интерфейс.
     await prisma.$executeRaw`
       INSERT INTO "LeadInterest" ("id", "leadId", "unitId")
       VALUES (${id}, ${leadId}, ${unitId})
-    `;
-    // 2. Блокируем квартиру - переводим в статус RESERVATION_ORAL
-    await prisma.$executeRaw`
-      UPDATE "Unit" 
-      SET "status" = 'RESERVATION_ORAL'::"UnitStatus" 
-      WHERE "id" = ${unitId}
     `;
     return { success: true, interestId: id };
   } catch (error) {

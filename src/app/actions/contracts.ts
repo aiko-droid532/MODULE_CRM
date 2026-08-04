@@ -184,6 +184,7 @@ export async function getContractsList(organizationId: string, userRole?: string
         t.type as "templateType",
         l.name as "clientName",
         l.phone as "clientPhone",
+        u.id as "unitId",
         u.number as "unitNumber",
         b.number as "blockNumber",
         p.name as "projectName",

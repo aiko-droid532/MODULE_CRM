@@ -857,11 +857,14 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     setSelectedUnitRooms([]);
     setPriceHistory([]);
 
-    // Если есть backToLeadId в URL, возвращаемся назад с автооткрытием этого лида
+    // Если есть backToLeadId / backToContractId в URL, возвращаемся назад с автооткрытием
     const params = new URLSearchParams(window.location.search);
     const backToLeadId = params.get('backToLeadId');
+    const backToContractId = params.get('backToContractId');
     if (backToLeadId) {
       router.push(`/clients?openLeadId=${backToLeadId}`);
+    } else if (backToContractId) {
+      router.push(`/contracts?openContractId=${backToContractId}`);
     }
   };
 
@@ -1264,10 +1267,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const getStatusName = (status: string) => {
     switch (status) {
       case 'FREE': return 'Свободна';
-      case 'SOFT_BOOKED': return 'Софт бронь';
-      case 'RESERVATION_ORAL': return 'Софт бронь';
-      case 'HARD_BOOKED': return 'Хард бронь';
-      case 'RESERVATION_PAID': return 'Хард бронь';
+      case 'SOFT_BOOKED': return 'SOFT бронь';
+      case 'RESERVATION_ORAL': return 'SOFT бронь';
+      case 'HARD_BOOKED': return 'HARD бронь';
+      case 'RESERVATION_PAID': return 'HARD бронь';
       case 'CONTRACT_SIGNED': return 'Договор подписан';
       case 'DOWN_PAYMENT_RECEIVED': return 'Взнос оплачен';
       case 'FULLY_PAID': return 'Полная оплата';
@@ -1393,8 +1396,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         <div className={styles.statsRow}>
           <div className={styles.statMini}><div className={styles.statNum}>{stats.total}</div><div className={styles.statLabel}>Всего</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#16a34a'}}>{stats.free}</div><div className={styles.statLabel}>Свободно</div></div>
-          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#eab308'}}>{stats.soft}</div><div className={styles.statLabel}>Софт бронь</div></div>
-          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#ea580c'}}>{stats.hard}</div><div className={styles.statLabel}>Хард бронь</div></div>
+          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#eab308'}}>{stats.soft}</div><div className={styles.statLabel}>SOFT бронь</div></div>
+          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#ea580c'}}>{stats.hard}</div><div className={styles.statLabel}>HARD бронь</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#b91c1c'}}>{stats.sold}</div><div className={styles.statLabel}>Продано</div></div>
         </div>
 
@@ -1417,8 +1420,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
             <select className={styles.filterSelect} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="ALL">Все статусы</option>
               <option value="FREE">Свободные</option>
-              <option value="SOFT">Софт бронь</option>
-              <option value="HARD">Хард бронь</option>
+              <option value="SOFT">SOFT бронь</option>
+              <option value="HARD">HARD бронь</option>
               <option value="CONTRACT_SIGNED">Договор подписан</option>
               <option value="SOLD">Продано / Оплачено</option>
               <option value="SERVICE">Служебное резервирование</option>
@@ -1458,8 +1461,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         {/* Легенда */}
         <div className={styles.legend}>
           <div className={styles.legendItem}><span className={styles.freeBox}></span> Свободна</div>
-          <div className={styles.legendItem}><span className={styles.softBookedBox}></span> Софт бронь</div>
-          <div className={styles.legendItem}><span className={styles.hardBookedBox}></span> Хард бронь</div>
+          <div className={styles.legendItem}><span className={styles.softBookedBox}></span> SOFT бронь</div>
+          <div className={styles.legendItem}><span className={styles.hardBookedBox}></span> HARD бронь</div>
           <div className={styles.legendItem}><span className={styles.contractSignedBox}></span> Договор</div>
           <div className={styles.legendItem}><span className={styles.fullyPaidBox}></span> Продано</div>
           <div className={styles.legendItem}><span className={styles.serviceBox}></span> Служебная</div>
@@ -1827,14 +1830,14 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 className={`${styles.bookingTypeTab} ${bookingType === 'SOFT' ? styles.bookingTypeTabActiveSoft : ''}`} 
                                 onClick={() => setBookingType('SOFT')}
                               >
-                                Софт бронь
+                                SOFT бронь
                               </button>
                               <button
                                 type="button"
                                 className={`${styles.bookingTypeTab} ${bookingType === 'HARD' ? styles.bookingTypeTabActiveHard : ''}`}
                                 onClick={() => setBookingType('HARD')}
                               >
-                                Хард бронь
+                                HARD бронь
                               </button>
                               <button 
                                 type="button"

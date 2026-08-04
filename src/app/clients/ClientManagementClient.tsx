@@ -100,17 +100,19 @@ function QualifyModal({ lead, projects, onClose, onQualify }: {
           </select>
         </div>
         
-        <div className={styles.formGroup}>
-          <label>Комнатность</label>
-          <select className={styles.input} value={form.roomsInterested} onChange={e => setForm({...form, roomsInterested: e.target.value})}>
-            <option value="">Любая</option>
-            <option value="1">1 комната</option>
-            <option value="2">2 комнаты</option>
-            <option value="3">3 комнаты</option>
-            <option value="4">4+ комнаты</option>
-          </select>
-        </div>
-        
+        {form.propertyType === 'Apartment' && (
+          <div className={styles.formGroup}>
+            <label>Комнатность</label>
+            <select className={styles.input} value={form.roomsInterested} onChange={e => setForm({...form, roomsInterested: e.target.value})}>
+              <option value="">Любая</option>
+              <option value="1">1 комната</option>
+              <option value="2">2 комнаты</option>
+              <option value="3">3 комнаты</option>
+              <option value="4">4+ комнаты</option>
+            </select>
+          </div>
+        )}
+
         <div className={styles.formGroup}>
           <label>Площадь (м²)</label>
           <div style={{ display: 'flex', gap: '10px' }}>
@@ -884,7 +886,18 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
                                   >
                                     Взять в работу
                                   </button>
-                                ) : lead.status === 'IN_QUALIFICATION' ? null : lead.status === 'QUALIFIED' ? (
+                                ) : lead.status === 'IN_QUALIFICATION' ? (
+                                  <button
+                                    className={`${styles.cardBtn} ${styles.primaryActionBtn}`}
+                                    style={{ width: '100%' }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowQualifyModal(lead);
+                                    }}
+                                  >
+                                    Заполнить анкету
+                                  </button>
+                                ) : lead.status === 'QUALIFIED' ? (
                                   <button 
                                     className={`${styles.cardBtn} ${styles.primaryActionBtn}`} 
                                     style={{ width: '100%' }} 
@@ -949,8 +962,8 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
                               </div>
                             )}
 
-                            {/* Запись на прием */}
-                            {lead.status !== 'NEW' && lead.status !== 'LOST' && canManage && !readOnly && (
+                            {/* Запись на прием — только в статусе "В работе" */}
+                            {lead.status === 'IN_PROGRESS' && canManage && !readOnly && (
                               <div style={{ display: 'flex', gap: '8px', width: '100%', marginTop: '8px' }}>
                                 <button 
                                   className={styles.cardBtnSchedule} 
