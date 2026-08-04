@@ -11,7 +11,8 @@ import { updateDealStatus, updateDealMortgage,
   addDealUnit,
   removeDealUnit,
   searchLeads,
-  searchUnits } from '@/app/actions/deals';
+  searchUnits,
+  getDealHistory } from '@/app/actions/deals';
 import { logCallAttempt, createClient } from '@/app/actions/leads';
 import { getDealGifts, addDealGift, removeDealGift, getAvailableGiftUnits } from '@/app/actions/gifts';
 import { getPendingDiscountRequest, approveDiscountRequest, rejectDiscountRequest } from '@/app/actions/discountApprovals';
@@ -30,10 +31,10 @@ const STAGES: { id: string; label: string; color: string; type: StageType; child
   { id: 'SECOND_CALL', label: 'Коллцентр 2', color: '#2563eb', type: 'normal' },
   { id: 'THIRD_CALL', label: 'Обработанный Звонок', color: '#1d4ed8', type: 'normal' },
 
+  { id: 'PRE_RESERVATION', label: '1-й звонок', color: '#fbbf24', type: 'normal' },
+  { id: 'RESERVATION', label: '2-й звонок', color: '#f97316', type: 'normal' },
+  { id: 'CONTRACT_PREPARATION', label: '3-й звонок', color: '#a855f7', type: 'normal' },
   { id: 'CONSULTATION', label: 'Распределён', color: '#f59e0b', type: 'normal' },
-  { id: 'PRE_RESERVATION', label: '1-й звонок (МП)', color: '#fbbf24', type: 'normal' },
-  { id: 'RESERVATION', label: '2-й звонок (МП)', color: '#f97316', type: 'normal' },
-  { id: 'CONTRACT_PREPARATION', label: '3-й звонок (МП)', color: '#a855f7', type: 'normal' },
   { id: 'MEETING', label: 'Встреча назначена', color: '#8b5cf6', type: 'normal' },
   { id: 'CLIENT_CONFIRMATION', label: 'Встреча проведена', color: '#059669', type: 'normal' },
   { id: 'CONTRACT', label: 'Запрошено бронирование', color: '#0d9488', type: 'normal' },
@@ -53,10 +54,10 @@ const STATUS_ORDER: Record<string, number> = {
   CALL: 2,
   SECOND_CALL: 3,
   THIRD_CALL: 4,
-  CONSULTATION: 5,
-  PRE_RESERVATION: 6,
-  RESERVATION: 7,
-  CONTRACT_PREPARATION: 8,
+  PRE_RESERVATION: 5,
+  RESERVATION: 6,
+  CONTRACT_PREPARATION: 7,
+  CONSULTATION: 8,
   MEETING: 9,
   CLIENT_CONFIRMATION: 10,
   CONTRACT: 11,
@@ -68,6 +69,16 @@ const STATUS_ORDER: Record<string, number> = {
   CANCELLED: 17
 };
 
+// Человекочитаемые названия статусов для Хронологии (DEA-029) — берём из STAGES,
+// сгруппированные FAILED/CANCELLED получают подпись своей группы ("Cancelled").
+const DEAL_STATUS_LABELS: Record<string, string> = {};
+STAGES.forEach(s => {
+  if (s.children) {
+    s.children.forEach(c => { DEAL_STATUS_LABELS[c] = s.label; });
+  } else {
+    DEAL_STATUS_LABELS[s.id] = s.label;
+  }
+});
 
 const STAGE_DESCRIPTIONS: Record<string, string> = {
   NEW_LEAD: 'Автоматически создаются из маркетинга: мессенджеры и Instagram.',
@@ -310,6 +321,9 @@ const [dealClients, setDealClients] = useState<any[]>([]);
 const [dealUnits, setDealUnits] = useState<any[]>([]);
 const [dealGifts, setDealGifts] = useState<any[]>([]);
 const [pendingDiscountRequest, setPendingDiscountRequest] = useState<any>(null);
+const [dealHistory, setDealHistory] = useState<any[]>([]);
+const [historyTypeFilter, setHistoryTypeFilter] = useState('ALL');
+const [historySearch, setHistorySearch] = useState('');
 const [showAddGiftModal, setShowAddGiftModal] = useState(false);
 const [giftType, setGiftType] = useState<'DESCRIPTION' | 'UNIT'>('DESCRIPTION');
 const [giftDescription, setGiftDescription] = useState('');
@@ -421,10 +435,14 @@ const loadDealExtras = async (dealId: string) => {
   const units = await getDealUnits(dealId);
   const gifts = await getDealGifts(dealId);
   const pendingDiscount = await getPendingDiscountRequest(dealId);
+  const historyRes = await getDealHistory(dealId);
   setDealClients(clients);
   setDealUnits(units);
   setDealGifts(gifts);
   setPendingDiscountRequest(pendingDiscount);
+  setDealHistory(historyRes.success ? historyRes.history : []);
+  setHistoryTypeFilter('ALL');
+  setHistorySearch('');
 };
 
 // Обновленный handleCardClick
@@ -442,6 +460,33 @@ const handleCardClick = async (deal: any) => {
   setMortgageStatus(deal.mortgageStatus || 'NONE');
   setMortgageComment(deal.mortgageComment || '');
   await loadDealExtras(deal.id);
+};
+
+// Автооткрытие карточки сделки по ссылке (highlightDealId), например из карточки договора
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const highlightDealId = params.get('highlightDealId');
+  if (highlightDealId && deals.length > 0) {
+    const found = deals.find((d: any) => d.id === highlightDealId);
+    if (found) {
+      handleCardClick(found);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete('highlightDealId');
+    window.history.replaceState({}, '', url.pathname + url.search);
+  }
+}, [deals]);
+
+// Закрыть карточку сделки — если открыта из договора (backToContractId), вернуться туда
+const closeDealModal = () => {
+  setSelectedDeal(null);
+  const params = new URLSearchParams(window.location.search);
+  const backToContractId = params.get('backToContractId');
+  if (backToContractId) {
+    // Полная перезагрузка страницы — иначе роутер Next.js иногда отдаёт
+    // закэшированный список договоров без только что открытого контракта.
+    window.location.href = `/contracts?openContractId=${backToContractId}`;
+  }
 };
 
 const UNIT_DELETE_REASONS = [
@@ -862,12 +907,12 @@ const handleSetPrimaryClient = async (leadId: string) => {
 
       {/* Модальное окно деталей сделки с блоком Ипотеки */}
       {selectedDeal && (
-  <div className={styles.overlay} onClick={() => setSelectedDeal(null)}>
+  <div className={styles.overlay} onClick={closeDealModal}>
     <div className={styles.modalFullscreen} onClick={(e) => e.stopPropagation()}>
       <header className={styles.modalHeader}>
               <h2 style={{fontWeight: 800, color: '#0f172a', fontSize: '1.7rem'}}>Карточка сделки #{selectedDeal.id.slice(0, 8)}</h2>
               {/* Кнопка закрытия скрыта по заданию */}
-        <button className={styles.closeBtn} onClick={() => setSelectedDeal(null)}>✕</button>
+        <button className={styles.closeBtn} onClick={closeDealModal}>✕</button>
             </header>
 
             <main className={styles.modalBody}>
@@ -1065,7 +1110,8 @@ const handleSetPrimaryClient = async (leadId: string) => {
     ))}
   </div>
 
-  {/* Блок Подарки (Этап 2.3) */}
+  {/* Блок "Бенефиты" скрыт по запросу — код оставлен на случай, если понадобится вернуть */}
+  {false && (
   <div className={styles.infoSection}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
       <h3 style={{ fontWeight: 800, fontSize: '1.25rem', color: '#1e293b', borderBottom: '1px solid #f1f5f9', paddingBottom: '5px', margin: 0 }}>
@@ -1116,6 +1162,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
       ))
     )}
   </div>
+  )}
 
   {/* Блок Ипотека (остается без изменений) */}
   <div className={styles.infoSection} style={{ background: 'rgba(59, 130, 246, 0.03)', border: '1px solid rgba(59, 130, 246, 0.1)', padding: '15px', borderRadius: '10px' }}>
@@ -1173,6 +1220,83 @@ const handleSetPrimaryClient = async (leadId: string) => {
     >
       {loading ? 'Сохранение...' : ' Сохранить статус ипотеки'}
     </button>
+  </div>
+
+  {/* Хронология событий сделки (DEA-029) */}
+  <div className={styles.infoSection}>
+    <h3 style={{ fontWeight: 800, fontSize: '1.25rem', color: '#1e293b', borderBottom: '1px solid #f1f5f9', paddingBottom: '5px', margin: '0 0 10px 0' }}>
+       Хронология
+    </h3>
+    <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
+      <select
+        value={historyTypeFilter}
+        onChange={e => setHistoryTypeFilter(e.target.value)}
+        className={styles.modalInput}
+        style={{ width: 'auto', minWidth: '160px' }}
+      >
+        <option value="ALL">Все события</option>
+        {Array.from(new Set(dealHistory.map((h: any) => h.fieldName || h.action))).map((type: any) => (
+          <option key={type} value={type}>{type === 'status' ? 'Смена статуса' : type}</option>
+        ))}
+      </select>
+      <input
+        type="text"
+        placeholder="Поиск по менеджеру, значению, причине..."
+        value={historySearch}
+        onChange={e => setHistorySearch(e.target.value)}
+        className={styles.modalInput}
+        style={{ flex: 1, minWidth: '200px' }}
+      />
+    </div>
+
+    {(() => {
+      const filtered = dealHistory.filter((h: any) => {
+        if (historyTypeFilter !== 'ALL' && (h.fieldName || h.action) !== historyTypeFilter) return false;
+        if (historySearch.trim()) {
+          const q = historySearch.trim().toLowerCase();
+          const haystack = [
+            h.managerName,
+            h.fieldName === 'status' ? DEAL_STATUS_LABELS[h.oldValue] : h.oldValue,
+            h.fieldName === 'status' ? DEAL_STATUS_LABELS[h.newValue] : h.newValue,
+            h.reason,
+          ].filter(Boolean).join(' ').toLowerCase();
+          if (!haystack.includes(q)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        return (
+          <p style={{ color: '#94a3b8', fontStyle: 'italic' }}>
+            {dealHistory.length === 0 ? 'История событий пока пуста' : 'Ничего не найдено по заданным условиям'}
+          </p>
+        );
+      }
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
+          {filtered.map((h: any) => (
+            <div key={h.id} style={{ padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#64748b', marginBottom: '4px' }}>
+                <span style={{ fontWeight: 700, color: '#1e293b' }}>{h.managerName}</span>
+                <span>{new Date(h.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: '#334155' }}>
+                {h.fieldName === 'status'
+                  ? <>Смена статуса: <strong>{DEAL_STATUS_LABELS[h.oldValue] || h.oldValue}</strong> → <strong>{DEAL_STATUS_LABELS[h.newValue] || h.newValue}</strong></>
+                  : <>{h.fieldName || h.action}: {h.oldValue} → {h.newValue}</>
+                }
+              </div>
+              {h.reason && (
+                <div style={{ fontSize: '0.78rem', color: '#b45309', marginTop: '4px', fontStyle: 'italic' }}>
+                  Причина: {h.reason}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    })()}
   </div>
 </main>
 

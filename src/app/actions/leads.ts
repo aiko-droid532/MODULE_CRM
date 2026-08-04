@@ -402,7 +402,7 @@ export async function assignLeadToManager(leadId: string, managerId: string) {
 export async function logCallAttempt(leadId: string) {
   try {
     await requireRole(canManageDeals, 'фиксация звонка по лиду');
-    const leads: any[] = await prisma.$queryRaw`SELECT "callAttempts" FROM "Lead" WHERE id = ${leadId}`;
+    const leads: any[] = await prisma.$queryRaw`SELECT "callAttempts", "managerId" FROM "Lead" WHERE id = ${leadId}`;
     if (!leads.length) return { success: false };
 
     let attempts = (leads[0].callAttempts || 0) + 1;
@@ -417,22 +417,20 @@ export async function logCallAttempt(leadId: string) {
       `;
     }
 
-    // Sync with Deal Status
+    // Синхронизация со сделкой: это те же самые 3 звонка менеджера ОП, что и
+    // счётчик "Звонок (X/3)" у лида — просто отражаем их в статусе сделки
+    // (1-й/2-й/3-й звонок), а не в статусах колл-центра.
     let dealStatusToSet = '';
     if (attempts === 1) {
-      dealStatusToSet = 'CALL';
+      dealStatusToSet = 'PRE_RESERVATION'; // "1-й звонок"
     } else if (attempts === 2) {
-      dealStatusToSet = 'SECOND_CALL';
+      dealStatusToSet = 'RESERVATION'; // "2-й звонок"
     } else if (attempts >= 3) {
-      dealStatusToSet = 'FAILED';
+      dealStatusToSet = 'CONTRACT_PREPARATION'; // "3-й звонок"
     }
 
     if (dealStatusToSet) {
-      await prisma.$executeRaw`
-        UPDATE "Deal"
-        SET "status" = ${dealStatusToSet}::"DealStatus", "updatedAt" = NOW()
-        WHERE "leadId" = ${leadId} AND "status" NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')
-      `;
+      await syncDealStatusForLead(leadId, dealStatusToSet, leads[0].managerId);
     }
 
     revalidatePath('/clients');
@@ -482,9 +480,14 @@ export async function createDeal(data: {
 
     const dealId = crypto.randomUUID();
 
+    // Сделка сразу попадает в "Распределён" (CONSULTATION) — так и должно быть при
+    // конвертации лида в сделку. Статус квартиры НЕ трогаем — она остаётся свободной,
+    // пока менеджер сам не поставит ручную бронь через шахматку (см. booking.ts).
+    // Раньше здесь же квартиру молча запирали в RESERVATION_PAID без записи в Booking —
+    // из-за этого бронь потом было невозможно снять через интерфейс.
     await prisma.$executeRaw`
       INSERT INTO "Deal" ("id", "leadId", "unitId", "status", "organizationId", "managerId", "createdAt", "updatedAt")
-      VALUES (${dealId}, ${data.leadId}, ${data.unitId}, 'NEW_LEAD', ${data.organizationId}, ${data.managerId}, NOW(), NOW())
+      VALUES (${dealId}, ${data.leadId}, ${data.unitId}, 'CONSULTATION', ${data.organizationId}, ${data.managerId}, NOW(), NOW())
     `;
 
     await prisma.$executeRaw`
@@ -492,10 +495,12 @@ export async function createDeal(data: {
     `;
 
     await prisma.$executeRaw`
-      UPDATE "Unit" SET "status" = 'RESERVATION_PAID'::"UnitStatus" WHERE "id" = ${data.unitId}
+      INSERT INTO "AuditLog" ("id", "action", "entityType", "entityId", "managerId", "fieldName", "oldValue", "newValue", "organizationId", "createdAt")
+      VALUES (${crypto.randomUUID()}, 'CREATE', 'Deal', ${dealId}, ${data.managerId || 'system'}, 'status', 'NEW_LEAD', 'CONSULTATION', ${data.organizationId}, NOW())
     `;
 
     revalidatePath('/clients');
+    revalidatePath('/deals');
     return { success: true, deal: { id: dealId } };
   } catch (error) {
     console.error('Create deal SQL error:', error);
@@ -569,7 +574,10 @@ export async function updateClient(data: {
 export async function getLeadById(id: string) {
   try {
     const leads: any[] = await prisma.$queryRaw`
-      SELECT * FROM "Lead" WHERE "id" = ${id} LIMIT 1
+      SELECT l.*, p.name as "interestedProjectName"
+      FROM "Lead" l
+      LEFT JOIN "Project" p ON l."interestedProjectId" = p.id
+      WHERE l."id" = ${id} LIMIT 1
     `;
     if (leads.length === 0) return null;
 
@@ -1235,12 +1243,8 @@ export async function bookScheduleSlot(data: {
       VALUES (${slotId}, ${data.leadId}, ${data.managerId}, ${data.date}::date, ${data.time}, 'BOOKED', ${lead[0].name}, ${lead[0].phone}, NOW(), NOW())
     `;
 
-    // Sync with Deal Status: set to CONSULTATION (Личная консультация)
-    await prisma.$executeRaw`
-      UPDATE "Deal"
-      SET "status" = 'CONSULTATION'::"DealStatus", "updatedAt" = NOW()
-      WHERE "leadId" = ${data.leadId} AND "status" NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')
-    `;
+    // Синхронизация со сделкой: запись на приём — сделка сразу переходит в "Встреча назначена"
+    await syncDealStatusForLead(data.leadId, 'MEETING', data.managerId);
 
     revalidatePath('/clients');
     revalidatePath('/deals');
@@ -1254,12 +1258,20 @@ export async function bookScheduleSlot(data: {
 export async function cancelScheduleSlot(slotId: string, reason: string) {
   try {
     await requireRole(canManageDeals, 'отмена приема');
+    const slots: any[] = await prisma.$queryRaw`
+      SELECT "leadId", "managerId" FROM "LeadSchedule" WHERE "id" = ${slotId} LIMIT 1
+    `;
     await prisma.$executeRaw`
       UPDATE "LeadSchedule"
       SET "status" = 'CANCELLED', "updatedAt" = NOW()
       WHERE "id" = ${slotId}
     `;
+    // Встреча не проведена — сделка возвращается в "Распределён"
+    if (slots[0]?.leadId) {
+      await syncDealStatusForLead(slots[0].leadId, 'CONSULTATION', slots[0].managerId, reason);
+    }
     revalidatePath('/clients');
+    revalidatePath('/deals');
     return { success: true };
   } catch (error) {
     console.error('cancelScheduleSlot error:', error);
@@ -1270,17 +1282,47 @@ export async function cancelScheduleSlot(slotId: string, reason: string) {
 export async function completeScheduleSlot(slotId: string) {
   try {
     await requireRole(canManageDeals, 'подтверждение приема');
+    const slots: any[] = await prisma.$queryRaw`
+      SELECT "leadId", "managerId" FROM "LeadSchedule" WHERE "id" = ${slotId} LIMIT 1
+    `;
     await prisma.$executeRaw`
       UPDATE "LeadSchedule"
       SET "status" = 'COMPLETED', "updatedAt" = NOW()
       WHERE "id" = ${slotId}
     `;
+    // Встреча проведена успешно — сделка переходит в "Встреча проведена"
+    if (slots[0]?.leadId) {
+      await syncDealStatusForLead(slots[0].leadId, 'CLIENT_CONFIRMATION', slots[0].managerId);
+    }
     revalidatePath('/clients');
+    revalidatePath('/deals');
     return { success: true };
   } catch (error) {
     console.error('completeScheduleSlot error:', error);
     return { success: false };
   }
+}
+
+// Синхронизация статуса сделки лида по событиям записи на приём (запись / отмена / проведена).
+// Не трогает уже закрытые сделки (Won/Lost/Cancelled).
+async function syncDealStatusForLead(leadId: string, newStatus: string, managerId?: string, reason?: string) {
+  const deals: any[] = await prisma.$queryRaw`
+    SELECT "id", "status", "organizationId" FROM "Deal"
+    WHERE "leadId" = ${leadId} AND "status" NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')
+    LIMIT 1
+  `;
+  const deal = deals[0];
+  if (!deal || deal.status === newStatus) return;
+
+  await prisma.$executeRaw`
+    UPDATE "Deal"
+    SET "status" = ${newStatus}::"DealStatus", "updatedAt" = NOW()
+    WHERE "id" = ${deal.id}
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "AuditLog" ("id", "action", "entityType", "entityId", "managerId", "fieldName", "oldValue", "newValue", "reason", "organizationId", "createdAt")
+    VALUES (${crypto.randomUUID()}, 'UPDATE', 'Deal', ${deal.id}, ${managerId || 'system'}, 'status', ${deal.status}, ${newStatus}, ${reason || null}, ${deal.organizationId}, NOW())
+  `;
 }
 
 export async function getLeadSchedule(leadId: string) {

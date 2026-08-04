@@ -1099,25 +1099,27 @@ export default function LeadDossier({
                             <option value="Storage">Кладовка</option>
                           </select>
                         </div>
-                        <div className={styles.field}>
-                          <label>Комнатность</label>
-                          <select
-                            className={styles.editInput}
-                            value={qualifyForm.roomsInterested}
-                            onChange={(e) =>
-                              setQualifyForm({
-                                ...qualifyForm,
-                                roomsInterested: e.target.value,
-                              })
-                            }
-                          >
-                            <option value="">Любая</option>
-                            <option value="1">1 комната</option>
-                            <option value="2">2 комнаты</option>
-                            <option value="3">3 комнаты</option>
-                            <option value="4">4+ комнаты</option>
-                          </select>
-                        </div>
+                        {qualifyForm.propertyType === "Apartment" && (
+                          <div className={styles.field}>
+                            <label>Комнатность</label>
+                            <select
+                              className={styles.editInput}
+                              value={qualifyForm.roomsInterested}
+                              onChange={(e) =>
+                                setQualifyForm({
+                                  ...qualifyForm,
+                                  roomsInterested: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="">Любая</option>
+                              <option value="1">1 комната</option>
+                              <option value="2">2 комнаты</option>
+                              <option value="3">3 комнаты</option>
+                              <option value="4">4+ комнаты</option>
+                            </select>
+                          </div>
+                        )}
                         <div className={styles.field}>
                           <label>Срок сдачи</label>
                           <select
@@ -1238,8 +1240,7 @@ export default function LeadDossier({
                       <div className={styles.field}>
                         <label>ЖК интереса</label>
                         <p className={styles.val}>
-                          {lead.interestedProjectName ||
-                            lead.interestedProjectId}
+                          {lead.interestedProjectName || "—"}
                         </p>
                       </div>
                       <div className={styles.field}>
@@ -1249,17 +1250,23 @@ export default function LeadDossier({
                             ? "Квартира"
                             : lead.propertyType === "Commercial"
                               ? "Коммерция"
-                              : lead.propertyType || "—"}
+                              : lead.propertyType === "Parking"
+                                ? "Паркинг"
+                                : lead.propertyType === "Storage"
+                                  ? "Кладовка"
+                                  : lead.propertyType || "—"}
                         </p>
                       </div>
-                      <div className={styles.field}>
-                        <label>Комнатность</label>
-                        <p className={styles.val}>
-                          {lead.roomsInterested
-                            ? `${lead.roomsInterested} комн.`
-                            : "Любая"}
-                        </p>
-                      </div>
+                      {lead.propertyType === "Apartment" && (
+                        <div className={styles.field}>
+                          <label>Комнатность</label>
+                          <p className={styles.val}>
+                            {lead.roomsInterested
+                              ? `${lead.roomsInterested} комн.`
+                              : "Любая"}
+                          </p>
+                        </div>
+                      )}
                       <div className={styles.field}>
                         <label>Площадь</label>
                         <p className={styles.val}>

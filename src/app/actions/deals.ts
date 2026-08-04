@@ -117,10 +117,10 @@ const STAGE_HIERARCHY: Record<string, number> = {
   CALL: 2,
   SECOND_CALL: 3,
   THIRD_CALL: 4,
-  CONSULTATION: 5,
-  PRE_RESERVATION: 6,
-  RESERVATION: 7,
-  CONTRACT_PREPARATION: 8,
+  PRE_RESERVATION: 5,
+  RESERVATION: 6,
+  CONTRACT_PREPARATION: 7,
+  CONSULTATION: 8,
   MEETING: 9,
   CLIENT_CONFIRMATION: 10,
   CONTRACT: 11,
@@ -240,16 +240,10 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
       }
     }
 
-    // 2.4 Страховочная синхронизация статуса помещения: сделка дошла до "Договор", а помещение
-    // (например, если сделку заводили не через бронь/createDeal, а прямо через график в карточке
-    // лида) всё ещё числится свободным — помечаем занятым, чтобы его нельзя было одновременно
-    // забронировать или добавить в другую сделку.
-    if (status === 'DEAL' && deal && deal.unitId && deal.unitStatus === 'FREE') {
-      await prisma.$executeRaw`
-        UPDATE "Unit" SET "status" = 'RESERVATION_PAID'::"UnitStatus", "updatedAt" = NOW()
-        WHERE "id" = ${deal.unitId}
-      `;
-    }
+    // Статус квартиры больше НЕ меняется автоматически при смене статуса сделки —
+    // только через явную ручную бронь в шахматке (см. booking.ts). Раньше при входе
+    // в "Договор" квартира молча запиралась в RESERVATION_PAID без записи в Booking,
+    // из-за чего бронь потом было невозможно снять через интерфейс.
 
     // 2.5 Синхронизация статуса лида со статусом сделки (раздел 3 ТЗ)
     if (status === 'FAILED' || status === 'CANCELLED') {
@@ -385,6 +379,32 @@ export async function updateDealMortgage(data: {
   } catch (error) {
     console.error('Update deal mortgage SQL error:', error);
     return { success: false };
+  }
+}
+
+// Хронология событий сделки (DEA-029) — читает уже существующий AuditLog
+// (в него пишутся переходы статуса, см. updateDealStatus) по entityType='Deal'.
+export async function getDealHistory(dealId: string) {
+  try {
+    const list: any[] = await prisma.$queryRaw`
+      SELECT
+        a.id,
+        a.action,
+        a."fieldName" as "fieldName",
+        a."createdAt" as "createdAt",
+        a."oldValue" as "oldValue",
+        a."newValue" as "newValue",
+        a."reason" as "reason",
+        COALESCE(m.name, 'Система') as "managerName"
+      FROM "AuditLog" a
+      LEFT JOIN "Manager" m ON a."managerId" = m.id
+      WHERE a."entityId" = ${dealId} AND a."entityType" = 'Deal'
+      ORDER BY a."createdAt" DESC
+    `;
+    return { success: true, history: list };
+  } catch (error: any) {
+    console.error('Failed to get deal history:', error);
+    return { success: false, error: error.message, history: [] };
   }
 }
 
