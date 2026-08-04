@@ -1887,3 +1887,11 @@
   color: #1e40af !important;
   font-weight: 700;
 }
+
+/* Авто-рассчитанное поле ушло в минус — сигнал, что введённые вручную суммы слишком велики */
+.inputNegative {
+  background: #fef2f2 !important;
+  border-color: #dc2626 !important;
+  color: #dc2626 !important;
+  font-weight: 700;
+}

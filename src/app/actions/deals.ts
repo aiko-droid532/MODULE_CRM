@@ -287,30 +287,41 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
           `;
         }
 
-        // Снапшот отменяется вместе с договором: цена (даже если была зафиксирована) откатывается
-        // на каталожную — акция/индивидуальная/накопительная скидки по расторгнутой сделке не сохраняются.
-        if (deal && deal.catalogPriceUSD != null && Math.abs(deal.catalogPriceUSD - (deal.basePriceUSD ?? deal.catalogPriceUSD)) > 0.01) {
-          const oldTotal = Number(deal.totalAmount) || 0;
-          const ratio = oldTotal > 0 ? deal.catalogPriceUSD / oldTotal : 1;
-          await prisma.$executeRaw`
-            UPDATE "Deal"
-            SET "totalAmount" = ${deal.catalogPriceUSD},
-                "basePriceUSD" = ${deal.catalogPriceUSD},
-                "discountPercent" = 0,
-                "discountAmountUSD" = 0,
-                "discountApprovedById" = NULL,
-                "discountApprovedByRole" = NULL,
-                "updatedAt" = NOW()
-            WHERE id = ${dealId}
-          `;
-          if (oldTotal > 0) {
-            await prisma.$executeRaw`
-              UPDATE "PaymentSchedule"
-              SET "amount" = "amount" * ${ratio}, "updatedAt" = NOW()
-              WHERE "dealId" = ${dealId} AND status != 'PAID'
-            `;
-          }
-        }
+        // План рассрочки стирается вместе с расторжением договора — сделка возвращается
+        // в состояние "до расчёта" (снова показываем калькулятор, а не сохранённый план).
+        // Уже проведённые (PAID) платежи не трогаем — это фактическая история оплат.
+        await prisma.$executeRaw`
+          UPDATE "Deal"
+          SET "totalAmount" = NULL,
+              "basePriceUSD" = NULL,
+              "catalogPriceUSD" = NULL,
+              "promotionId" = NULL,
+              "discountPercent" = NULL,
+              "discountAmountUSD" = NULL,
+              "discountApplyType" = NULL,
+              "discountApprovedById" = NULL,
+              "discountApprovedByRole" = NULL,
+              "paymentType" = NULL,
+              "scheduleType" = NULL,
+              "periodicity" = NULL,
+              "nbgRate" = NULL,
+              "firstPaymentDate" = NULL,
+              "firstPaymentPercent" = NULL,
+              "scheduleStartDate" = NULL,
+              "scheduleEndDate" = NULL,
+              "recurringAmountUSD" = NULL,
+              "lastPaymentDate" = NULL,
+              "lastPaymentAmountUSD" = NULL,
+              "lastPaymentPercent" = NULL,
+              "installmentComment" = NULL,
+              "customScheduleFileUrl" = NULL,
+              "priceLocked" = false,
+              "updatedAt" = NOW()
+          WHERE id = ${dealId}
+        `;
+        await prisma.$executeRaw`
+          DELETE FROM "PaymentSchedule" WHERE "dealId" = ${dealId} AND status != 'PAID'
+        `;
       }
     } else {
       await prisma.$executeRaw`
@@ -727,6 +738,28 @@ export async function getActiveDealsForUnit(unitId: string, organizationId: stri
   } catch (error) {
     console.error('getActiveDealsForUnit error:', error);
     return [];
+  }
+}
+
+// Уже сохранённый план рассрочки по сделке — если есть, карточка объекта показывает
+// вкладку "План рассрочки" вместо калькулятора. Возвращает null, если расчёт ещё не сохранён
+// (или был стёрт при расторжении сделки — см. updateDealStatus).
+export async function getInstallmentPlanForDeal(dealId: string, organizationId: string) {
+  try {
+    if (!dealId) return null;
+    const rows: any[] = await prisma.$queryRaw`
+      SELECT * FROM "Deal" WHERE id = ${dealId} AND "organizationId" = ${organizationId} LIMIT 1
+    `;
+    const deal = rows[0];
+    if (!deal || !deal.firstPaymentDate) return null;
+
+    const schedule: any[] = await prisma.$queryRaw`
+      SELECT * FROM "PaymentSchedule" WHERE "dealId" = ${dealId} ORDER BY "dueDate" ASC
+    `;
+    return { deal, schedule };
+  } catch (error) {
+    console.error('getInstallmentPlanForDeal error:', error);
+    return null;
   }
 }
 

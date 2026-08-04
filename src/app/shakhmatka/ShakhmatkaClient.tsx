@@ -6,7 +6,7 @@ import { createDemoProject, getPriceHistory, createUnit, updateUnit, deleteUnit,
 import { createBooking, releaseBooking, addToWaitingListAction, removeFromWaitingListAction, getWaitingListAction } from '@/app/actions/booking';
 import { getExchangeRate } from '@/app/actions/exchange';
 import { importUnitsFromExcel } from '@/app/actions/import';
-import { getActiveDealsForUnit, saveInstallmentPlanAction, getLockedUnitDealsMap } from '@/app/actions/deals';
+import { getActiveDealsForUnit, saveInstallmentPlanAction, getLockedUnitDealsMap, getInstallmentPlanForDeal } from '@/app/actions/deals';
 import { useRouter } from 'next/navigation';
 import LeadDossier from '@/components/Leads/LeadDossier';
 import * as XLSX from 'xlsx';
@@ -403,6 +403,13 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const [calcSaving, setCalcSaving] = useState(false);
   const [calcFullPaymentDate, setCalcFullPaymentDate] = useState('');
   const [calcCumulativeDiscount, setCalcCumulativeDiscount] = useState<any>(null);
+  // Накопительные скидки скрыты (см. Pricing.SHOW_LOYALTY_TAB) — механика не должна нигде
+  // действовать, поэтому она отключена и здесь, а не только на вкладке в Ценообразовании.
+  const SHOW_CUMULATIVE_DISCOUNT = false;
+  // Сохранённый план рассрочки по выбранной сделке — если есть, вкладка калькулятора
+  // превращается в read-only "План рассрочки" (см. loadSavedPlan ниже)
+  const [savedPlan, setSavedPlan] = useState<any>(null);
+  const [savedPlanLoading, setSavedPlanLoading] = useState(false);
 
   useEffect(() => {
     async function loadUnitDeals() {
@@ -431,6 +438,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   // Накопительная скидка клиента — зависит от того, какая сделка (какой клиент) выбрана в блоке "Объект"
   useEffect(() => {
     async function loadCumulative() {
+      if (!SHOW_CUMULATIVE_DISCOUNT) { setCalcCumulativeDiscount(null); return; }
       const deal = unitDeals.find((d: any) => d.id === calcDealId);
       if (deal?.leadId) {
         const cumulative = await getApplicableCumulativeDiscount(deal.leadId, organizationId);
@@ -441,6 +449,18 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     }
     loadCumulative();
   }, [calcDealId, unitDeals, organizationId]);
+
+  // Уже сохранённый план по этой сделке — переключает вкладку в read-only режим
+  useEffect(() => {
+    async function loadSavedPlan() {
+      if (!calcDealId) { setSavedPlan(null); return; }
+      setSavedPlanLoading(true);
+      const plan = await getInstallmentPlanForDeal(calcDealId, organizationId);
+      setSavedPlan(plan);
+      setSavedPlanLoading(false);
+    }
+    loadSavedPlan();
+  }, [calcDealId, organizationId]);
 
   // Дата сдачи: своя у квартиры, иначе — тянем от даты сдачи ЖК
   const calcEffectiveDeliveryDate: string = selectedUnit
@@ -514,6 +534,16 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
 
   function round2(n: number): number {
     return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
+  // Склонение "платёж/платежа/платежей" — периодичность в подписи не нужна, только количество
+  function pluralizePayments(n: number): string {
+    const abs = Math.abs(n);
+    const mod10 = abs % 10;
+    const mod100 = abs % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${n} платёж`;
+    if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return `${n} платежа`;
+    return `${n} платежей`;
   }
 
   const calcFirstPercent = calcLiveFinalPrice > 0 ? Math.round((derivedFirstAmount / calcLiveFinalPrice) * 1000) / 10 : 0;
@@ -638,6 +668,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         alert((res as any).pendingApproval
           ? 'Скидка отправлена на согласование руководителю ОП. График будет сохранён после подтверждения.'
           : 'График рассрочки сохранён и привязан к сделке.');
+        if (!(res as any).pendingApproval) {
+          const plan = await getInstallmentPlanForDeal(calcDealId, organizationId);
+          setSavedPlan(plan);
+        }
       } else {
         alert('Ошибка сохранения: ' + (res.error || ''));
       }
@@ -673,8 +707,12 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
       schedule: [{ date: calcFullPaymentDate, amountUSD: selectedUnit.price, amountGEL: Math.round(selectedUnit.price * calcNbgRate) }],
       organizationId,
       initiatorId: managerId,
-    }).then(res => {
+    }).then(async res => {
       alert(res.success ? 'Платёж сохранён.' : 'Ошибка: ' + (res.error || ''));
+      if (res.success) {
+        const plan = await getInstallmentPlanForDeal(calcDealId, organizationId);
+        setSavedPlan(plan);
+      }
     }).finally(() => setCalcSaving(false));
   }
 
@@ -2003,11 +2041,62 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                 )}
               </div>
 
-              {/* Подвкладка 3: Калькулятор рассрочки */}
+              {/* Подвкладка 3а: План рассрочки — появляется, только если по сделке уже есть сохранённый
+                  расчёт. Калькулятор при этом НЕ скрывается (расчёт можно менять и после заключения
+                  сделки) — план исчезает сам, когда сделка расторгается (см. updateDealStatus). */}
+              {savedPlan && (
+                <div className={styles.accordionItem}>
+                  <button
+                    type="button"
+                    className={styles.accordionHeader}
+                    onClick={() => toggleAccordion('plan')}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}> План рассрочки</span>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{activeAccordions.plan ? ' Свернуть' : ' Развернуть'}</span>
+                  </button>
+                  {activeAccordions.plan && (
+                    <div className={styles.accordionContent}>
+                      {savedPlanLoading ? (
+                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>Загрузка...</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          <div className={styles.paramGrid}>
+                            <div className={styles.paramItem}><span className={styles.paramLabel}>Итоговая цена $</span><span className={styles.paramValue}>${Number(savedPlan.deal.totalAmount || 0).toLocaleString()}</span></div>
+                            <div className={styles.paramItem}><span className={styles.paramLabel}>Первый взнос</span><span className={styles.paramValue}>{savedPlan.deal.firstPaymentDate ? formatDateRu(toDateInputValue(savedPlan.deal.firstPaymentDate)) : '—'} · {savedPlan.deal.firstPaymentPercent ?? 0}%</span></div>
+                            <div className={styles.paramItem}><span className={styles.paramLabel}>Тип оплаты</span><span className={styles.paramValue}>{savedPlan.deal.paymentType === 'CASH' ? '100% оплата' : 'Рассрочка'}</span></div>
+                            {savedPlan.deal.installmentComment && (
+                              <div className={styles.paramItem}><span className={styles.paramLabel}>Комментарий</span><span className={styles.paramValue}>{savedPlan.deal.installmentComment}</span></div>
+                            )}
+                          </div>
+                          <div className={styles.installmentTableWrapper}>
+                            <table className={styles.installmentTable}>
+                              <thead>
+                                <tr><th>№</th><th>Дата платежа</th><th>Сумма ($)</th><th>Статус</th></tr>
+                              </thead>
+                              <tbody>
+                                {savedPlan.schedule.map((r: any, idx: number) => (
+                                  <tr key={r.id}>
+                                    <td>{idx + 1}</td>
+                                    <td>{formatDateRu(toDateInputValue(r.dueDate))}</td>
+                                    <td>${Number(r.amount).toLocaleString()}</td>
+                                    <td>{r.status === 'PAID' ? 'Оплачен' : 'Ожидается'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Подвкладка 3б: Калькулятор рассрочки */}
               <div className={styles.accordionItem}>
-                <button 
-                  type="button" 
-                  className={styles.accordionHeader} 
+                <button
+                  type="button"
+                  className={styles.accordionHeader}
                   onClick={() => toggleAccordion('calc')}
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}> Калькулятор рассрочки</span>
@@ -2147,11 +2236,6 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                           <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#475569' }}>
                             Итоговая цена (с учётом скидки): <strong>${calcLiveFinalPrice.toLocaleString()}</strong>
                           </div>
-                          {calcCumulativeDiscount && (
-                            <div style={{ marginTop: '8px', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>
-                               Накопительная скидка клиента: {calcCumulativePercent}% (покупок ранее: {calcCumulativeDiscount.purchaseCount}) — применяется автоматически
-                            </div>
-                          )}
                           {calcCombinedDiscountPercent > 0 && (
                             <div style={{
                               marginTop: '8px', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600,
@@ -2159,7 +2243,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                               color: role === 'manager' ? '#b45309' : (calcDiscountAllowed ? '#166534' : '#dc2626'),
                               border: `1px solid ${role === 'manager' ? '#fde68a' : (calcDiscountAllowed ? '#bbf7d0' : '#fecaca')}`
                             }}>
-                              Суммарная скидка {calcCombinedDiscountPercent}% (акция {calcPromoDiscountPercent}% + индивидуальная {calcDiscountPercent}% + накопительная {calcCumulativePercent}%){role === 'manager'
+                              Суммарная скидка {calcCombinedDiscountPercent}% (акция {calcPromoDiscountPercent}% + индивидуальная {calcDiscountPercent}%){role === 'manager'
                                 ? ' — будет отправлена на согласование руководителю ОП.'
                                 : calcDiscountAllowed
                                   ? ' — в пределах вашего порога согласования.'
@@ -2188,8 +2272,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                             <div className={styles.installmentGridRow}>
                               <div className={styles.installmentGridLabel}>Первый взнос</div>
                               <input type="date" className={styles.input} value={calcFirstPaymentDate} onChange={e => { setCalcFirstPaymentDate(e.target.value); markCustom(); }} />
-                              <input type="number" className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''}`} value={derivedFirstAmount} onChange={e => handleFirstAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''}`} value={calcFirstPercent} onChange={e => handleFirstPercentChange(Number(e.target.value))} />
+                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''}`} value={derivedFirstAmount} onChange={e => handleFirstAmountChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''}`} value={calcFirstPercent} onChange={e => handleFirstPercentChange(Number(e.target.value))} />
                             </div>
 
                             {/* Строка 2: Периодический платёж */}
@@ -2197,7 +2281,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                               <div className={styles.installmentGridLabel}>
                                 Периодический платёж
                                 <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>
-                                  {calcMonthsCount} плат., раз в {PERIODICITY_LABELS[calcPeriodicity].toLowerCase().replace('раз в ', '')}
+                                  {pluralizePayments(calcMonthsCount)}
                                 </div>
                               </div>
                               <div className={styles.paramValue} style={{ display: 'flex', alignItems: 'center', color: calcAutoDates.scheduleStartDate ? '#1e293b' : '#94a3b8', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
@@ -2205,20 +2289,22 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 {' – '}
                                 {calcAutoDates.scheduleEndDate ? formatDateRu(calcAutoDates.scheduleEndDate) : '--.--.--'}
                               </div>
-                              <input type="number" className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''}`} value={derivedRecurringAmount} onChange={e => handleRecurringAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''}`} value={calcRecurringPercent} onChange={e => handleRecurringPercentChange(Number(e.target.value))} />
+                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''}`} value={derivedRecurringAmount} onChange={e => handleRecurringAmountChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''}`} value={calcRecurringPercent} onChange={e => handleRecurringPercentChange(Number(e.target.value))} />
                             </div>
 
                             {/* Строка 3: Остаток */}
                             <div className={styles.installmentGridRow}>
                               <div className={styles.installmentGridLabel}>Остаток (финальный платёж)</div>
                               <div className={styles.paramValue} style={{ display: 'flex', alignItems: 'center', color: calcEffectiveDeliveryDate ? '#1e293b' : '#94a3b8', fontSize: '0.8rem' }}>{calcEffectiveDeliveryDate ? formatDateRu(calcEffectiveDeliveryDate) : '--.--.--'}</div>
-                              <input type="number" className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''}`} value={derivedLastAmount} onChange={e => handleLastAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''}`} value={calcLastPercent} onChange={e => handleLastPercentChange(Number(e.target.value))} />
+                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''}`} value={derivedLastAmount} onChange={e => handleLastAmountChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''}`} value={calcLastPercent} onChange={e => handleLastPercentChange(Number(e.target.value))} />
                             </div>
                           </div>
                           <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '6px' }}>
-                            Подсвеченное поле рассчитывается автоматически из двух остальных строк — начните вводить значение прямо в нём, чтобы задать его вручную (авто-роль перейдёт на другую строку).
+                            {!calcFirstPaymentDate
+                              ? 'Сначала укажите дату первого взноса — после этого станут доступны суммы и проценты.'
+                              : 'Подсвеченное синим поле рассчитывается автоматически из двух остальных строк — начните вводить значение прямо в нём, чтобы задать его вручную (авто-роль перейдёт на другую строку). Красным подсвечивается поле, ушедшее в минус — уменьшите суммы в остальных строках.'}
                           </p>
 
                           <div className={styles.formGroup} style={{ marginTop: '12px' }}>
@@ -2226,7 +2312,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                             <input className={styles.input} value={calcComment} onChange={e => setCalcComment(e.target.value)} placeholder="Свободный текст" />
                           </div>
 
-                          <button type="button" onClick={handleRunCalculation} className={styles.modalSaveBtn} style={{ marginTop: '12px' }}>
+                          <button type="button" onClick={handleRunCalculation} style={{ marginTop: '12px', padding: '8px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>
                             Рассчитать
                           </button>
                         </div>
