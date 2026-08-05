@@ -12,8 +12,11 @@ import { updateDealStatus, updateDealMortgage,
   removeDealUnit,
   searchLeads,
   searchUnits,
-  getDealHistory } from '@/app/actions/deals';
-import { logCallAttempt, createClient } from '@/app/actions/leads';
+  getDealHistory,
+  getDeals } from '@/app/actions/deals';
+import { logCallAttempt, createClient, getLeadById } from '@/app/actions/leads';
+import { getProjects } from '@/app/actions/units';
+import LeadDossier from '@/components/Leads/LeadDossier';
 import { getDealGifts, addDealGift, removeDealGift, getAvailableGiftUnits } from '@/app/actions/gifts';
 import { getPendingDiscountRequest, approveDiscountRequest, rejectDiscountRequest } from '@/app/actions/discountApprovals';
 import LeadModal from '@/components/Leads/LeadModal';
@@ -342,9 +345,25 @@ const [showRegisterNewClient, setShowRegisterNewClient] = useState(false);
 const [deleteReason, setDeleteReason] = useState('');
 const [customDeleteReason, setCustomDeleteReason] = useState('');
 
+  const [selectedLeadForDossier, setSelectedLeadForDossier] = useState<any | null>(null);
+  const [loadingLeadId, setLoadingLeadId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<any[]>([]);
+
   useEffect(() => {
     setDeals(filteredInitialDeals);
   }, [initialDeals]);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const data = await getProjects(organizationId);
+        setProjects(data);
+      } catch (e) {
+        console.error('Failed to load projects:', e);
+      }
+    };
+    loadProjects();
+  }, [organizationId]);
 
   const handleDragStart = (e: React.DragEvent, dealId: string) => {
     e.dataTransfer.setData('text/plain', dealId);
@@ -486,6 +505,23 @@ const closeDealModal = () => {
     // Полная перезагрузка страницы — иначе роутер Next.js иногда отдаёт
     // закэшированный список договоров без только что открытого контракта.
     window.location.href = `/contracts?openContractId=${backToContractId}`;
+  }
+};
+
+const handleOpenDossier = async (leadId: string) => {
+  setLoadingLeadId(leadId);
+  try {
+    const fullLead = await getLeadById(leadId);
+    if (fullLead) {
+      setSelectedLeadForDossier(fullLead);
+    } else {
+      alert('Не удалось загрузить досье клиента');
+    }
+  } catch (error) {
+    console.error('Error fetching lead for dossier:', error);
+    alert('Произошла ошибка при загрузке досье');
+  } finally {
+    setLoadingLeadId(null);
   }
 };
 
@@ -921,11 +957,47 @@ const handleSetPrimaryClient = async (leadId: string) => {
       {selectedDeal && (
   <div className={styles.overlay} onClick={closeDealModal}>
     <div className={styles.modalFullscreen} onClick={(e) => e.stopPropagation()}>
-      <header className={styles.modalHeader}>
-              <h2 style={{fontWeight: 800, color: '#0f172a', fontSize: '1.7rem'}}>Карточка сделки {selectedDeal.dealNumber || `#${selectedDeal.id.slice(0, 8)}`}</h2>
-              {/* Кнопка закрытия скрыта по заданию */}
+      <header className={styles.modalHeader} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <h2 style={{fontWeight: 800, color: '#0f172a', fontSize: '1.7rem', margin: 0}}>
+            Карточка сделки {selectedDeal.dealNumber || `#${selectedDeal.id.slice(0, 8)}`}
+          </h2>
+          {selectedDeal.totalAmount != null && Number(selectedDeal.totalAmount) > 0 && (
+            <button
+              onClick={() => {
+                window.location.href = `/contracts?openCreateModalWithDealId=${selectedDeal.id}`;
+              }}
+              style={{
+                background: '#10b981',
+                color: 'white',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                transition: 'background-color 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#059669'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
+              Заключить договор
+            </button>
+          )}
+        </div>
         <button className={styles.closeBtn} onClick={closeDealModal}>✕</button>
-            </header>
+      </header>
 
             <main className={styles.modalBody}>
   {pendingDiscountRequest && canApprove && (
@@ -974,7 +1046,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
     </div>
   )}
   {/* БЛОК ДАННЫЕ КЛИЕНТА С ПЛЮСИКОМ */}
-  <div className={styles.infoSection}>
+  <div className={styles.infoSection} style={{ background: 'rgba(59, 130, 246, 0.03)', border: '1px solid rgba(59, 130, 246, 0.1)', padding: '15px', borderRadius: '10px' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
       <h3 style={{ fontWeight: 800, fontSize: '1.25rem', color: '#1e293b', borderBottom: '1px solid #f1f5f9', paddingBottom: '5px', margin: 0 }}>
          Данные клиента
@@ -996,23 +1068,94 @@ const handleSetPrimaryClient = async (leadId: string) => {
 
     {/* Все клиенты сделки из dealClients */}
     {dealClients.map(client => (
-      <div key={client.id} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <strong>{client.name}</strong>
-            {client.isPrimary && (
-              <span style={{ background: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', marginLeft: '8px' }}>
-                ОСНОВНОЙ
+      <div key={client.id} style={{ padding: '15px 0', borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px', width: '100%' }}>
+            {/* ФИО */}
+            <div style={{
+              flex: '1 1 280px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                ФИО Клиента
               </span>
-            )}
-            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{client.phone}</div>
-            {client.email && <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{client.email}</div>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span
+                  onClick={() => handleOpenDossier(client.leadId)}
+                  style={{
+                    fontWeight: 800,
+                    fontSize: '1.2rem',
+                    color: '#2563eb',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    textDecorationStyle: 'dotted'
+                  }}
+                  title="Открыть досье клиента"
+                >
+                  {client.name}
+                </span>
+                {client.isPrimary && (
+                  <span style={{ background: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>
+                    ОСНОВНОЙ
+                  </span>
+                )}
+                {loadingLeadId === client.leadId && (
+                  <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>
+                    (загрузка...)
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Телефон */}
+            <div style={{
+              flex: '1 1 200px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Телефон
+              </span>
+              <span style={{ color: '#1e293b', fontSize: '1.1rem', fontWeight: 600 }}>
+                {client.phone}
+              </span>
+            </div>
+
+            {/* Почта */}
+            <div style={{
+              flex: '1 1 200px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Электронная почта
+              </span>
+              <span style={{ color: '#1e293b', fontSize: '1.1rem', fontWeight: 600 }}>
+                {client.email || '—'}
+              </span>
+            </div>
           </div>
-          <div>
+          
+          <div style={{ display: 'flex', justifyContent: 'flex-start', gap: '8px' }}>
             {!client.isPrimary && (
               <button
                 className={styles.quickCallBtn}
-                style={{ marginRight: '8px' }}
                 onClick={() => handleSetPrimaryClient(client.leadId)}
               >
                 Сделать основным
@@ -1028,7 +1171,6 @@ const handleSetPrimaryClient = async (leadId: string) => {
                 }
               }}
             >
-
             </button>
           </div>
         </div>
@@ -1037,7 +1179,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
   </div>
 
   {/* БЛОК ОБЪЕКТ НЕДВИЖИМОСТИ С ПЛЮСИКОМ */}
-  <div className={styles.infoSection}>
+  <div className={styles.infoSection} style={{ background: 'rgba(59, 130, 246, 0.03)', border: '1px solid rgba(59, 130, 246, 0.1)', padding: '15px', borderRadius: '10px' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
       <h3 style={{ fontWeight: 800, fontSize: '1.25rem', color: '#1e293b', borderBottom: '1px solid #f1f5f9', paddingBottom: '5px', margin: 0 }}>
          Объект недвижимости
@@ -1056,70 +1198,113 @@ const handleSetPrimaryClient = async (leadId: string) => {
       </button>
     </div>
 
-    {/* Основной объект (из сделки) */}
-    {selectedDeal.unit ? (
-      <div style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '8px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <strong>{selectedDeal.unit.projectName || 'ЖК'}</strong> – №{selectedDeal.unit.number}
-            <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
-              {selectedDeal.unit.rooms} комн. • {selectedDeal.unit.area} м² • ${selectedDeal.unit.price?.toLocaleString()} (каталог)
-            </div>
-            {(selectedDeal.workingPrice != null && Math.round(selectedDeal.workingPrice) !== Math.round(selectedDeal.unit.price || 0)) && (
-              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#dc2626', marginTop: '2px' }}>
-                {selectedDeal.priceLocked ? 'Зафиксировано: ' : 'С учётом акций: '}
-                ${Math.round(selectedDeal.workingPrice).toLocaleString()}
-              </div>
-            )}
-          </div>
-          <a
-            href={`/shakhmatka?highlightUnitId=${selectedDeal.unit.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.quickCallBtn}
-            style={{ textDecoration: 'none', fontSize: '0.8rem' }}
-            title="Открыть карточку помещения"
-          >
-             В шахматке
-          </a>
-        </div>
-      </div>
-    ) : (
+    {!selectedDeal.unit && dealUnits.length === 0 ? (
       <p style={{ color: '#94a3b8', fontStyle: 'italic' }}>Квартира к сделке еще не привязана</p>
-    )}
+    ) : (
+      <div style={{ overflowX: 'auto' }}>
+        <table className={styles.unitTable}>
+          <thead>
+            <tr>
+              <th>Тип</th>
+              <th>ЖК</th>
+              <th>№ помещения</th>
+              <th>Комн.</th>
+              <th>Площадь</th>
+              <th>Цена (USD)</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* Основной объект */}
+            {selectedDeal.unit && (() => {
+              const hasPromoOrCalculated = (selectedDeal.workingPrice != null && Math.round(selectedDeal.workingPrice) !== Math.round(selectedDeal.unit.price || 0)) || (selectedDeal.totalAmount != null && Number(selectedDeal.totalAmount) > 0);
+              const selectedPrice = (selectedDeal.totalAmount != null && Number(selectedDeal.totalAmount) > 0) ? Number(selectedDeal.totalAmount) : (selectedDeal.workingPrice || selectedDeal.unit.price || 0);
+              return (
+                <tr>
+                  <td>
+                    <span style={{ background: '#d1fae5', color: '#065f46', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
+                      ОСНОВНОЙ
+                    </span>
+                  </td>
+                  <td>{selectedDeal.unit.projectName || '—'}</td>
+                  <td style={{ fontWeight: 600 }}>№ {selectedDeal.unit.number}</td>
+                  <td>{selectedDeal.unit.rooms}</td>
+                  <td>{selectedDeal.unit.area} м²</td>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {hasPromoOrCalculated ? (
+                        <>
+                          <span style={{ textDecoration: 'line-through', color: '#94a3b8', fontSize: '0.8rem' }}>
+                            ${selectedDeal.unit.price?.toLocaleString()}
+                          </span>
+                          <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '0.95rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            ${Math.round(selectedPrice).toLocaleString()}
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, background: '#fee2e2', color: '#ef4444', padding: '1px 4px', borderRadius: '4px' }}>
+                              {selectedDeal.priceLocked ? 'Зафикс.' : 'Акция'}
+                            </span>
+                          </span>
+                        </>
+                      ) : (
+                        <span style={{ fontWeight: 600 }}>
+                          ${selectedDeal.unit.price?.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <a
+                      href={`/shakhmatka?highlightUnitId=${selectedDeal.unit.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.quickCallBtn}
+                      style={{ textDecoration: 'none', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                    >
+                       В шахматке
+                    </a>
+                  </td>
+                </tr>
+              );
+            })()}
 
-    {/* Дополнительные объекты */}
-    {dealUnits.map(unit => (
-      <div key={unit.id} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '8px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <strong>{unit.projectName}</strong> – №{unit.number}
-            <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
-              {unit.rooms} комн. • {unit.area} м² • ${Number(unit.price).toLocaleString()}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <a
-              href={`/shakhmatka?highlightUnitId=${unit.unitId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.quickCallBtn}
-              style={{ textDecoration: 'none', fontSize: '0.8rem' }}
-              title="Открыть карточку помещения"
-            >
-               В шахматке
-            </a>
-            <button
-              className={styles.quickCallBtn}
-              style={{ background: '#fee2e2', color: '#ef4444' }}
-              onClick={() => setShowRemoveUnitModal({ id: unit.id, number: unit.number })}
-            >
-              Удалить
-            </button>
-          </div>
-        </div>
+            {/* Дополнительные объекты */}
+            {dealUnits.map(unit => (
+              <tr key={unit.id}>
+                <td>
+                  <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
+                    ДОП.
+                  </span>
+                </td>
+                <td>{unit.projectName || '—'}</td>
+                <td style={{ fontWeight: 600 }}>№ {unit.number}</td>
+                <td>{unit.rooms}</td>
+                <td>{unit.area} м²</td>
+                <td>${Number(unit.price).toLocaleString()}</td>
+                <td>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <a
+                      href={`/shakhmatka?highlightUnitId=${unit.unitId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.quickCallBtn}
+                      style={{ textDecoration: 'none', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                    >
+                       В шахматке
+                    </a>
+                    <button
+                      className={styles.quickCallBtn}
+                      style={{ background: '#fee2e2', color: '#ef4444', whiteSpace: 'nowrap' }}
+                      onClick={() => setShowRemoveUnitModal({ id: unit.id, number: unit.number })}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    ))}
+    )}
   </div>
 
   {/* Блок "Бенефиты" скрыт по запросу — код оставлен на случай, если понадобится вернуть */}
@@ -1653,6 +1838,31 @@ const handleSetPrimaryClient = async (leadId: string) => {
             </div>
           ))}
         </div>
+      )}
+
+      {selectedLeadForDossier && (
+        <LeadDossier
+          lead={selectedLeadForDossier}
+          projects={projects}
+          onClose={async () => {
+            setSelectedLeadForDossier(null);
+            if (selectedDeal) {
+              try {
+                const freshDeals = await getDeals(organizationId);
+                setDeals(canViewAll ? freshDeals : freshDeals.filter((d: any) => d.managerId === managerId || !d.managerId));
+                const updatedDeal = freshDeals.find((d: any) => d.id === selectedDeal.id);
+                if (updatedDeal) {
+                  setSelectedDeal(updatedDeal);
+                }
+              } catch (e) {
+                console.error('Failed to refresh deals on dossier close:', e);
+              }
+            }
+          }}
+          organizationId={organizationId}
+          userRole={userRole}
+          managerId={managerId}
+        />
       )}
 
     </div>

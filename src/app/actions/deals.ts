@@ -71,10 +71,13 @@ export async function getDeals(organizationId: string) {
         u.rooms as "unitRooms",
         u.type as "unitType",
         u.area as "unitArea",
-        u.price as "unitPrice"
+        u.price as "unitPrice",
+        p.name as "projectName"
       FROM "Deal" d
       LEFT JOIN "Lead" l ON d."leadId" = l.id
       LEFT JOIN "Unit" u ON d."unitId" = u.id
+      LEFT JOIN "Block" b ON u."blockId" = b.id
+      LEFT JOIN "Project" p ON b."projectId" = p.id
       WHERE d."organizationId" = ${organizationId}
       ORDER BY d."updatedAt" DESC
     `;
@@ -123,7 +126,8 @@ export async function getDeals(organizationId: string) {
           rooms: d.unitRooms,
           type: d.unitType,
           area: d.unitArea,
-          price: d.unitPrice
+          price: d.unitPrice,
+          projectName: d.projectName
         } : null
       };
     });

@@ -98,6 +98,24 @@ export default function ContractsClient({
     newTemplate.content,
   ]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openCreateModalWithDealId = params.get("openCreateModalWithDealId");
+    if (openCreateModalWithDealId) {
+      setNewContract({
+        dealId: openCreateModalWithDealId,
+        templateId: templates[0]?.id || "",
+        currencyFixation: "USD",
+      });
+      setShowCreateContractModal(true);
+
+      // Clean up parameter from URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete("openCreateModalWithDealId");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }, [templates]);
+
   const openTemplateModal = () => {
     setNewTemplate({
       name: "",

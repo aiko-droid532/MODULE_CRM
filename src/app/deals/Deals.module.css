@@ -404,7 +404,34 @@
   font-weight: 700;
   cursor: pointer;
   transition: background-color 0.2s;
+  width: fit-content;
+}
+
+.unitTable {
   width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.unitTable th {
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 700;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.unitTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.unitTable tr:hover {
+  background: #f8fafc;
 }
 
 .saveMortgageBtn:hover {
