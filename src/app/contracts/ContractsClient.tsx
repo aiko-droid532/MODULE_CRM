@@ -667,6 +667,25 @@ export default function ContractsClient({
                 onClick={() => setShowCreateTemplateModal(false)}
               ></button>
             </div>
+            <div
+              style={{
+                background: "#eff6ff",
+                border: "1px solid #bfdbfe",
+                borderRadius: "10px",
+                padding: "12px 16px",
+                marginBottom: "16px",
+                fontSize: "0.85rem",
+                color: "#1e3a8a",
+                lineHeight: 1.6,
+              }}
+            >
+              <strong>Как создать шаблон:</strong> 1) укажите название, тип и
+              язык договора — 2) напишите текст документа в редакторе ниже — 3)
+              в нужных местах вставьте теги автоподстановки из списка (например{" "}
+              <code>{"{{client.fullName}}"}</code>) — система сама заменит их
+              данными клиента, квартиры и сделки при формировании договора — 4)
+              нажмите «Опубликовать» внизу формы.
+            </div>
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
                 <label>Название шаблона *</label>
@@ -1007,7 +1026,7 @@ export default function ContractsClient({
                       title="Открыть сделку"
                       style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }}
                     >
-                      #{selectedContract.dealId?.slice(0, 8)}
+                      {selectedContract.dealNumber || `#${selectedContract.dealId?.slice(0, 8)}`}
                     </span>
                   </div>
                   <div className={styles.metaRow}>
@@ -1177,8 +1196,8 @@ export default function ContractsClient({
                       </button>
                     )}
 
-                    {/* Кнопки для Утвержденного */}
-                    {selectedContract.status === "APPROVED" && canManage && (
+                    {/* Кнопки для Утвержденного — временно скрыты по запросу */}
+                    {false && selectedContract.status === "APPROVED" && canManage && (
                       <>
                         <button
                           className={`${styles.btn} ${styles.btnSuccess}`}
@@ -1338,13 +1357,6 @@ export default function ContractsClient({
                         PDF
                       </button>
                     </div>
-
-                    <button
-                      className={`${styles.btn} ${styles.btnSecondary}`}
-                      onClick={() => setSelectedContract(null)}
-                    >
-                      Закрыть окно
-                    </button>
                   </div>
                 </div>
 

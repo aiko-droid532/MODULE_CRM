@@ -5,6 +5,27 @@ import { revalidatePath } from 'next/cache';
 import { requireRole, canManageDeals, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
 import { calcPromoPrice } from '@/lib/promotionCalculator';
 
+// Человеко-читаемый номер сделки: "ДД.ММ.ГГ/N", где N — порядковый номер сделки,
+// созданной сегодня в этой организации (аналог documentNumber у договоров).
+// Реальным первичным ключом остаётся Deal.id (UUID) — на нём завязаны все связи
+// в базе, его трогать нельзя. Это отдельное поле только для отображения.
+export async function generateDealNumber(organizationId: string): Promise<string> {
+  await prisma.$executeRaw`ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "dealNumber" TEXT`;
+
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(-2);
+  const dateStr = `${dd}.${mm}.${yy}`;
+
+  const countRes: any[] = await prisma.$queryRaw`
+    SELECT COUNT(*)::int as count FROM "Deal"
+    WHERE "organizationId" = ${organizationId} AND "createdAt"::date = CURRENT_DATE
+  `;
+  const seq = (countRes[0]?.count || 0) + 1;
+  return `${dateStr}/${seq}`;
+}
+
 // Получить все сделки организации через прямой JOIN SQL (очень быстро и безопасно для PgBouncer)
 export async function getDeals(organizationId: string) {
   try {
@@ -25,6 +46,7 @@ export async function getDeals(organizationId: string) {
     const rawDeals: any[] = await prisma.$queryRaw`
       SELECT
         d.id as "dealId",
+        d."dealNumber" as "dealNumber",
         d.status as "dealStatus",
         d."organizationId" as "dealOrgId",
         d."managerId" as "dealManagerId",
@@ -70,6 +92,7 @@ export async function getDeals(organizationId: string) {
 
       return {
         id: d.dealId,
+        dealNumber: d.dealNumber,
         status: d.dealStatus,
         organizationId: d.dealOrgId,
         managerId: d.dealManagerId,

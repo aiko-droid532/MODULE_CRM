@@ -768,7 +768,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
                       >
                         <div className={styles.cardHeaderSmall}>
                           <span className={styles.unitTagSmall}>{deal.unit?.number ? `№${deal.unit.number}` : 'Без объекта'}</span>
-                          <span className={styles.dealIdSmall}>#{deal.id.slice(0, 6)}</span>
+                          <span className={styles.dealIdSmall}>{deal.dealNumber || `#${deal.id.slice(0, 6)}`}</span>
                         </div>
                         <div className={styles.clientNameSmall}>{deal.clientName || 'Без имени'}</div>
 
@@ -881,7 +881,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
                                 <div className={styles.cardHeaderSmall}>
                                   <span className={styles.unitTagSmall}>{deal.unit?.number ? `№${deal.unit.number}` : 'Без объекта'}</span>
                                   <span className={styles.dealIdSmall}>
-                                    #{deal.id.slice(0, 6)}
+                                    {deal.dealNumber || `#${deal.id.slice(0, 6)}`}
                                   </span>
                                 </div>
 
@@ -922,7 +922,7 @@ const handleSetPrimaryClient = async (leadId: string) => {
   <div className={styles.overlay} onClick={closeDealModal}>
     <div className={styles.modalFullscreen} onClick={(e) => e.stopPropagation()}>
       <header className={styles.modalHeader}>
-              <h2 style={{fontWeight: 800, color: '#0f172a', fontSize: '1.7rem'}}>Карточка сделки #{selectedDeal.id.slice(0, 8)}</h2>
+              <h2 style={{fontWeight: 800, color: '#0f172a', fontSize: '1.7rem'}}>Карточка сделки {selectedDeal.dealNumber || `#${selectedDeal.id.slice(0, 8)}`}</h2>
               {/* Кнопка закрытия скрыта по заданию */}
         <button className={styles.closeBtn} onClick={closeDealModal}>✕</button>
             </header>

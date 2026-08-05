@@ -3,6 +3,7 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logAction } from '@/lib/logger';
+import { generateDealNumber } from './deals';
 
 export async function createBooking(data: {
   leadId: string;
@@ -79,9 +80,10 @@ export async function createBooking(data: {
       `;
     } else {
       dealId = crypto.randomUUID();
+      const dealNumber = await generateDealNumber(data.organizationId);
       await prisma.$executeRaw`
-        INSERT INTO "Deal" ("id", "leadId", "unitId", "organizationId", "status", "createdAt", "updatedAt")
-        VALUES (${dealId}, ${data.leadId}, ${data.unitId}, ${data.organizationId}, ${dealStatus}::"DealStatus", NOW(), NOW())
+        INSERT INTO "Deal" ("id", "leadId", "unitId", "organizationId", "status", "dealNumber", "createdAt", "updatedAt")
+        VALUES (${dealId}, ${data.leadId}, ${data.unitId}, ${data.organizationId}, ${dealStatus}::"DealStatus", ${dealNumber}, NOW(), NOW())
       `;
     }
 
@@ -198,9 +200,10 @@ export async function checkAndReleaseExpiredBookings() {
           `;
         } else {
           dealId = crypto.randomUUID();
+          const dealNumber = await generateDealNumber(b.organizationId);
           await prisma.$executeRaw`
-            INSERT INTO "Deal" ("id", "leadId", "unitId", "organizationId", "status", "createdAt", "updatedAt")
-            VALUES (${dealId}, ${nextInQueue.leadId}, ${b.unitId}, ${b.organizationId}, 'PRE_RESERVATION'::"DealStatus", NOW(), NOW())
+            INSERT INTO "Deal" ("id", "leadId", "unitId", "organizationId", "status", "dealNumber", "createdAt", "updatedAt")
+            VALUES (${dealId}, ${nextInQueue.leadId}, ${b.unitId}, ${b.organizationId}, 'PRE_RESERVATION'::"DealStatus", ${dealNumber}, NOW(), NOW())
           `;
         }
 
@@ -324,9 +327,10 @@ export async function releaseBooking(data: {
         `;
       } else {
         dealId = crypto.randomUUID();
+        const dealNumber = await generateDealNumber(data.organizationId);
         await prisma.$executeRaw`
-          INSERT INTO "Deal" ("id", "leadId", "unitId", "organizationId", "status", "createdAt", "updatedAt")
-          VALUES (${dealId}, ${nextInQueue.leadId}, ${data.unitId}, ${data.organizationId}, 'PRE_RESERVATION'::"DealStatus", NOW(), NOW())
+          INSERT INTO "Deal" ("id", "leadId", "unitId", "organizationId", "status", "dealNumber", "createdAt", "updatedAt")
+          VALUES (${dealId}, ${nextInQueue.leadId}, ${data.unitId}, ${data.organizationId}, 'PRE_RESERVATION'::"DealStatus", ${dealNumber}, NOW(), NOW())
         `;
       }
 

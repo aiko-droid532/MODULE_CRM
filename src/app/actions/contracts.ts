@@ -189,6 +189,7 @@ export async function getContractsList(organizationId: string, userRole?: string
         b.number as "blockNumber",
         p.name as "projectName",
         d."totalAmount" as "dealAmount",
+        d."dealNumber" as "dealNumber",
         d."managerId" as "managerId"
       FROM "Contract" c
       JOIN "ContractTemplate" t ON c."templateId" = t.id

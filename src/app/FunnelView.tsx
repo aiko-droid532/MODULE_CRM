@@ -518,7 +518,7 @@ export default function FunnelView({
                       return (
                         <tr key={deal.id}>
                           <td className={styles.dealId}>
-                            #{deal.id.slice(0, 8)}
+                            {deal.dealNumber || `#${deal.id.slice(0, 8)}`}
                           </td>
                           <td className={styles.clientName}>
                             {deal.lead?.name || "—"}

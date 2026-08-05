@@ -4,6 +4,7 @@ import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logAction } from '@/lib/logger';
 import { requireRole, canManageDeals, canManageUnits, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
+import { generateDealNumber } from './deals';
 
 export async function createClient(formData: {
   name: string;
@@ -190,66 +191,70 @@ export async function logPhoneView(leadId: string, managerId: string, reason: st
 
 export async function getLeads(organizationId: string) {
   try {
-    // "Ленивая" проверка снапшота цены — откатывает на каталожную цену сделки, чья акция
-    // уже закончилась, а договор так и не заключён (см. reconcileExpiredPromoDeals)
+    // "Ленивая" проверка снапшота цены (reconcileExpiredPromoDeals) не влияет на структуру
+    // результата — это фоновая починка устаревших сделок, поэтому не ждём её отдельно,
+    // а запускаем параллельно с чтением лидов (было 2 последовательных RTT, стал 1).
     const { reconcileExpiredPromoDeals } = await import('./promotions');
-    await reconcileExpiredPromoDeals(organizationId);
-
-    const leads: any[] = await prisma.$queryRaw`
-      SELECT l.*, p.name as "interestedProjectName"
-      FROM "Lead" l
-      LEFT JOIN "Project" p ON l."interestedProjectId" = p.id
-      WHERE l."organizationId" = ${organizationId} 
-      ORDER BY l."createdAt" DESC
-    `;
+    const [, leads] = await Promise.all([
+      reconcileExpiredPromoDeals(organizationId),
+      prisma.$queryRaw`
+        SELECT l.*, p.name as "interestedProjectName"
+        FROM "Lead" l
+        LEFT JOIN "Project" p ON l."interestedProjectId" = p.id
+        WHERE l."organizationId" = ${organizationId}
+        ORDER BY l."createdAt" DESC
+      ` as Promise<any[]>,
+    ]);
 
     if (leads.length === 0) return [];
 
-    const leadIds = leads.map(l => l.id);
+    const leadIds = leads.map((l: any) => l.id);
 
-    const allInterests: any[] = await prisma.$queryRaw`
-      SELECT 
-        li.*, 
-        u.number as "unitNumber", 
-        u.price as "unitPrice",
-        u.area as "unitArea",
-        u.rooms as "unitRooms",
-        p.name as "projectName"
-      FROM "LeadInterest" li
-      JOIN "Unit" u ON li."unitId" = u.id
-      JOIN "Block" b ON u."blockId" = b.id
-      JOIN "Project" p ON b."projectId" = p.id
-      WHERE li."leadId" IN (${Prisma.join(leadIds)})
-    `;
-
-    const allLogs: any[] = await prisma.$queryRaw`
-      SELECT * FROM "ChangeLog" 
-      WHERE "leadId" IN (${Prisma.join(leadIds)}) 
-      ORDER BY "createdAt" DESC
-    `;
-
-    // Fetch all deals where the client is either Deal.leadId or DealClient.leadId
-    const deals: any[] = await prisma.$queryRaw`
-      SELECT DISTINCT
-        d.id,
-        d."leadId",
-        d."unitId",
-        d.status,
-        d."createdAt",
-        d."updatedAt",
-        COALESCE(dc."leadId", d."leadId") as "involvedLeadId",
-        u.number as "unitNumber",
-        u.price as "unitPrice",
-        u.area as "unitArea",
-        u.rooms as "unitRooms",
-        p.name as "projectName"
-      FROM "Deal" d
-      JOIN "Unit" u ON d."unitId" = u.id
-      JOIN "Block" b ON u."blockId" = b.id
-      JOIN "Project" p ON b."projectId" = p.id
-      LEFT JOIN "DealClient" dc ON d.id = dc."dealId"
-      WHERE d."leadId" IN (${Prisma.join(leadIds)}) OR dc."leadId" IN (${Prisma.join(leadIds)})
-    `;
+    // Интересы / журнал изменений / сделки лида не зависят друг от друга — грузим одним
+    // параллельным батчем вместо трёх последовательных запросов (было 3 RTT, стал 1).
+    const [allInterests, allLogs, deals] = await Promise.all([
+      prisma.$queryRaw`
+        SELECT
+          li.*,
+          u.number as "unitNumber",
+          u.price as "unitPrice",
+          u.area as "unitArea",
+          u.rooms as "unitRooms",
+          p.name as "projectName"
+        FROM "LeadInterest" li
+        JOIN "Unit" u ON li."unitId" = u.id
+        JOIN "Block" b ON u."blockId" = b.id
+        JOIN "Project" p ON b."projectId" = p.id
+        WHERE li."leadId" IN (${Prisma.join(leadIds)})
+      ` as Promise<any[]>,
+      prisma.$queryRaw`
+        SELECT * FROM "ChangeLog"
+        WHERE "leadId" IN (${Prisma.join(leadIds)})
+        ORDER BY "createdAt" DESC
+      ` as Promise<any[]>,
+      // Fetch all deals where the client is either Deal.leadId or DealClient.leadId
+      prisma.$queryRaw`
+        SELECT DISTINCT
+          d.id,
+          d."leadId",
+          d."unitId",
+          d.status,
+          d."createdAt",
+          d."updatedAt",
+          COALESCE(dc."leadId", d."leadId") as "involvedLeadId",
+          u.number as "unitNumber",
+          u.price as "unitPrice",
+          u.area as "unitArea",
+          u.rooms as "unitRooms",
+          p.name as "projectName"
+        FROM "Deal" d
+        JOIN "Unit" u ON d."unitId" = u.id
+        JOIN "Block" b ON u."blockId" = b.id
+        JOIN "Project" p ON b."projectId" = p.id
+        LEFT JOIN "DealClient" dc ON d.id = dc."dealId"
+        WHERE d."leadId" IN (${Prisma.join(leadIds)}) OR dc."leadId" IN (${Prisma.join(leadIds)})
+      ` as Promise<any[]>,
+    ]);
 
     let dealUnits: any[] = [];
     if (deals.length > 0) {
@@ -485,9 +490,10 @@ export async function createDeal(data: {
     // пока менеджер сам не поставит ручную бронь через шахматку (см. booking.ts).
     // Раньше здесь же квартиру молча запирали в RESERVATION_PAID без записи в Booking —
     // из-за этого бронь потом было невозможно снять через интерфейс.
+    const dealNumber = await generateDealNumber(data.organizationId);
     await prisma.$executeRaw`
-      INSERT INTO "Deal" ("id", "leadId", "unitId", "status", "organizationId", "managerId", "createdAt", "updatedAt")
-      VALUES (${dealId}, ${data.leadId}, ${data.unitId}, 'CONSULTATION', ${data.organizationId}, ${data.managerId}, NOW(), NOW())
+      INSERT INTO "Deal" ("id", "leadId", "unitId", "status", "organizationId", "managerId", "dealNumber", "createdAt", "updatedAt")
+      VALUES (${dealId}, ${data.leadId}, ${data.unitId}, 'CONSULTATION', ${data.organizationId}, ${data.managerId}, ${dealNumber}, NOW(), NOW())
     `;
 
     await prisma.$executeRaw`
@@ -783,9 +789,10 @@ export async function savePaymentScheduleAction(data: {
       dealId = deals[0].id;
     } else {
       dealId = crypto.randomUUID();
+      const dealNumber = await generateDealNumber(data.organizationId);
       await prisma.$executeRaw`
-        INSERT INTO "Deal" ("id", "leadId", "unitId", "status", "organizationId", "createdAt", "updatedAt")
-        VALUES (${dealId}, ${data.leadId}, ${data.unitId}, 'NEW_LEAD', ${data.organizationId}, NOW(), NOW())
+        INSERT INTO "Deal" ("id", "leadId", "unitId", "status", "organizationId", "dealNumber", "createdAt", "updatedAt")
+        VALUES (${dealId}, ${data.leadId}, ${data.unitId}, 'NEW_LEAD', ${data.organizationId}, ${dealNumber}, NOW(), NOW())
       `;
       await prisma.$executeRaw`
         UPDATE "LeadInterest" SET "status" = 'DEAL' WHERE "leadId" = ${data.leadId} AND "unitId" = ${data.unitId}

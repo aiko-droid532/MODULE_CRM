@@ -72,8 +72,9 @@ export default async function DashboardPage({
         WHERE "organizationId" = ${organizationId} AND "status"::text != 'FAILED'
       `,
       prisma.$queryRaw`
-        SELECT 
+        SELECT
           d.id as "dealId",
+          d."dealNumber" as "dealNumber",
           d.status as "dealStatus",
           d."organizationId" as "dealOrgId",
           d."managerId" as "dealManagerId",
@@ -119,6 +120,7 @@ export default async function DashboardPage({
     // Преобразуем плоский SQL-результат в вложенную древовидную структуру для воронки
     dealsWithDetails = (rawDeals as any[]).map(d => ({
       id: d.dealId,
+      dealNumber: d.dealNumber,
       status: d.dealStatus,
       previousStatus: d.dealPreviousStatus,
       organizationId: d.dealOrgId,
