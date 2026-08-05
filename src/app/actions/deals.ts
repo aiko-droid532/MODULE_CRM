@@ -775,7 +775,7 @@ export async function getLockedUnitDealsMap(organizationId: string) {
 export async function getActiveDealsForUnit(unitId: string, organizationId: string) {
   try {
     const deals: any[] = await prisma.$queryRaw`
-      SELECT d.id, d."managerId", l.id as "leadId", l.name as "clientName", l.phone as "clientPhone"
+      SELECT d.id, d."managerId", d."createdAt", l.id as "leadId", l.name as "clientName", l.phone as "clientPhone"
       FROM "Deal" d
       JOIN "Lead" l ON d."leadId" = l.id
       WHERE d."unitId" = ${unitId} AND d."organizationId" = ${organizationId} AND d.status != 'CANCELLED'

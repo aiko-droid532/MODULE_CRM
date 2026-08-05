@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
  
 import React, { useState, useEffect, useMemo } from 'react';
 import styles from './Shakhmatka.module.css';
@@ -62,7 +62,27 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const [activeProjectId, setActiveProjectId] = useState(projects[0]?.id || null);
   const [activeBlockId, setActiveBlockId] = useState(projects[0]?.blocks?.[0]?.id || null);
 
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
+    { value: 'FREE', label: 'Свободные' },
+    { value: 'SOFT', label: 'Софт бронь' },
+    { value: 'HARD', label: 'Хард бронь' },
+    { value: 'CONTRACT_SIGNED', label: 'Договор подписан' },
+    { value: 'SOLD', label: 'Продано / Оплачено' },
+    { value: 'SERVICE', label: 'Служебное резервирование' },
+  ];
+  function toggleStatusFilterOption(value: string) {
+    setStatusFilter(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+  }
+  function unitMatchesStatusCode(unit: any, code: string): boolean {
+    switch (code) {
+      case 'SOFT': return unit.status === 'SOFT_BOOKED' || unit.status === 'RESERVATION_ORAL';
+      case 'HARD': return unit.status === 'HARD_BOOKED' || unit.status === 'RESERVATION_PAID';
+      case 'SOLD': return unit.status === 'FULLY_PAID' || unit.status === 'SOLD';
+      default: return unit.status === code;
+    }
+  }
   const [roomsFilter, setRoomsFilter] = useState<string[]>([]);
   const [roomsDropdownOpen, setRoomsDropdownOpen] = useState(false);
   const ROOMS_FILTER_OPTIONS = ['1', '2', '3', '4', '5+'];
@@ -544,6 +564,15 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     if (mod10 === 1 && mod100 !== 11) return `${n} платёж`;
     if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return `${n} платежа`;
     return `${n} платежей`;
+  }
+
+  // Контролируемые number-инпуты с value=0 не дают стереть ноль бэкспейсом — React
+  // тут же перерисовывает "0" обратно. Показываем пустую строку вместо нуля, пока поле
+  // активно для ввода — тогда бэкспейс реально очищает поле. Для disabled-полей ноль
+  // показываем как есть (просто светлее — см. .input:disabled), чтобы не выглядело пустым местом.
+  function displayNum(v: number, disabled?: boolean): number | string {
+    if (disabled) return v;
+    return v === 0 ? '' : v;
   }
 
   const calcFirstPercent = calcLiveFinalPrice > 0 ? Math.round((derivedFirstAmount / calcLiveFinalPrice) * 1000) / 10 : 0;
@@ -1267,10 +1296,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const getStatusName = (status: string) => {
     switch (status) {
       case 'FREE': return 'Свободна';
-      case 'SOFT_BOOKED': return 'SOFT бронь';
-      case 'RESERVATION_ORAL': return 'SOFT бронь';
-      case 'HARD_BOOKED': return 'HARD бронь';
-      case 'RESERVATION_PAID': return 'HARD бронь';
+      case 'SOFT_BOOKED': return 'Софт бронь';
+      case 'RESERVATION_ORAL': return 'Софт бронь';
+      case 'HARD_BOOKED': return 'Хард бронь';
+      case 'RESERVATION_PAID': return 'Хард бронь';
       case 'CONTRACT_SIGNED': return 'Договор подписан';
       case 'DOWN_PAYMENT_RECEIVED': return 'Взнос оплачен';
       case 'FULLY_PAID': return 'Полная оплата';
@@ -1306,16 +1335,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
 
   // Проверка фильтров
   const isFilteredOut = (unit: any) => {
-    if (statusFilter !== 'ALL') {
-      if (statusFilter === 'SOFT') {
-        if (unit.status !== 'SOFT_BOOKED' && unit.status !== 'RESERVATION_ORAL') return true;
-      } else if (statusFilter === 'HARD') {
-        if (unit.status !== 'HARD_BOOKED' && unit.status !== 'RESERVATION_PAID') return true;
-      } else if (statusFilter === 'SOLD') {
-        if (unit.status !== 'FULLY_PAID' && unit.status !== 'SOLD') return true;
-      } else {
-        if (unit.status !== statusFilter) return true;
-      }
+    if (statusFilter.length > 0) {
+      if (!statusFilter.some(code => unitMatchesStatusCode(unit, code))) return true;
     }
 
     if (roomsFilter.length > 0) {
@@ -1386,7 +1407,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                 style={{ background: '#f8fafc', color: '#0f172a', border: '1.5px solid #cbd5e1' }}
                 onClick={() => setShowCreateUnitModal(true)}
               >
-                Новая квартира
+                Новое помещение
               </button>
             )}
           </div>
@@ -1396,8 +1417,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         <div className={styles.statsRow}>
           <div className={styles.statMini}><div className={styles.statNum}>{stats.total}</div><div className={styles.statLabel}>Всего</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#16a34a'}}>{stats.free}</div><div className={styles.statLabel}>Свободно</div></div>
-          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#eab308'}}>{stats.soft}</div><div className={styles.statLabel}>SOFT бронь</div></div>
-          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#ea580c'}}>{stats.hard}</div><div className={styles.statLabel}>HARD бронь</div></div>
+          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#eab308'}}>{stats.soft}</div><div className={styles.statLabel}>Софт бронь</div></div>
+          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#ea580c'}}>{stats.hard}</div><div className={styles.statLabel}>Хард бронь</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#b91c1c'}}>{stats.sold}</div><div className={styles.statLabel}>Продано</div></div>
         </div>
 
@@ -1417,15 +1438,33 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
             }} className={styles.filterSelect}>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            <select className={styles.filterSelect} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-              <option value="ALL">Все статусы</option>
-              <option value="FREE">Свободные</option>
-              <option value="SOFT">SOFT бронь</option>
-              <option value="HARD">HARD бронь</option>
-              <option value="CONTRACT_SIGNED">Договор подписан</option>
-              <option value="SOLD">Продано / Оплачено</option>
-              <option value="SERVICE">Служебное резервирование</option>
-            </select>
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className={styles.filterSelect}
+                onClick={() => setStatusDropdownOpen(o => !o)}
+                style={{ textAlign: 'left', width: '150px' }}
+              >
+                Статус{statusFilter.length > 0 ? ` (${statusFilter.length})` : ''}
+              </button>
+              {statusDropdownOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 10 }} onClick={() => setStatusDropdownOpen(false)} />
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 11,
+                    background: 'white', border: '1px solid #e2e8f0', borderRadius: '10px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.1)', padding: '8px', minWidth: '210px',
+                  }}>
+                    {STATUS_FILTER_OPTIONS.map(opt => (
+                      <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', cursor: 'pointer', borderRadius: '6px', whiteSpace: 'nowrap' }}>
+                        <input type="checkbox" checked={statusFilter.includes(opt.value)} onChange={() => toggleStatusFilterOption(opt.value)} />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             <div style={{ position: 'relative' }}>
               <button
                 type="button"
@@ -1453,16 +1492,16 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                 </>
               )}
             </div>
-            <input type="number" placeholder="Цена от" className={styles.filterInput} style={{ width: '100px' }} value={priceFilter.min} onChange={e => setPriceFilter({...priceFilter, min: e.target.value})} />
-            <input type="number" placeholder="Цена до" className={styles.filterInput} style={{ width: '100px' }} value={priceFilter.max} onChange={e => setPriceFilter({...priceFilter, max: e.target.value})} />
+            <input type="number" placeholder="Цена от" className={styles.filterInput} style={{ width: '130px' }} value={priceFilter.min} onChange={e => setPriceFilter({...priceFilter, min: e.target.value})} />
+            <input type="number" placeholder="Цена до" className={styles.filterInput} style={{ width: '130px' }} value={priceFilter.max} onChange={e => setPriceFilter({...priceFilter, max: e.target.value})} />
           </div>
         </div>
 
         {/* Легенда */}
         <div className={styles.legend}>
           <div className={styles.legendItem}><span className={styles.freeBox}></span> Свободна</div>
-          <div className={styles.legendItem}><span className={styles.softBookedBox}></span> SOFT бронь</div>
-          <div className={styles.legendItem}><span className={styles.hardBookedBox}></span> HARD бронь</div>
+          <div className={styles.legendItem}><span className={styles.softBookedBox}></span> Софт бронь</div>
+          <div className={styles.legendItem}><span className={styles.hardBookedBox}></span> Хард бронь</div>
           <div className={styles.legendItem}><span className={styles.contractSignedBox}></span> Договор</div>
           <div className={styles.legendItem}><span className={styles.fullyPaidBox}></span> Продано</div>
           <div className={styles.legendItem}><span className={styles.serviceBox}></span> Служебная</div>
@@ -1587,7 +1626,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 {canUnits && <button onClick={openEditModal} className={styles.editUnitBtn} title="Редактировать"> Редактировать</button>}
                 {canUnits && <button onClick={handleDeleteUnit} className={styles.deleteUnitBtn} title="Исключить из продаж"> Исключить</button>}
-                <button onClick={closePanel} className={styles.closeBtn}></button>
+                <button onClick={closePanel} className={styles.closeBtn}>×</button>
               </div>
             </div>
 
@@ -1607,54 +1646,47 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                 </button>
                 {activeAccordions.info && (
                   <div className={styles.accordionContent}>
-                    {/* Характеристики */}
-                    <div className={styles.paramGrid}>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Корпус</span><span className={styles.paramValue}>{currentBlock?.number || '—'}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Этаж</span><span className={styles.paramValue}>{selectedUnit.floor}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>№ квартиры</span><span className={styles.paramValue}>{selectedUnit.number}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Подъезд (PTD)</span><span className={styles.paramValue}>{selectedUnit.entrance || '—'}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Статус</span><span className={styles.paramValue}>{getStatusName(selectedUnit.status)}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Площадь</span><span className={styles.paramValue}>{selectedUnit.area} м²</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Жилая площадь</span><span className={styles.paramValue}>{selectedUnit.livingArea ? `${selectedUnit.livingArea} м²` : '—'}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Комнат</span><span className={styles.paramValue}>{selectedUnit.rooms}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Тип</span><span className={styles.paramValue}>{selectedUnit.type === 'Apartment' ? 'Жилая' : selectedUnit.type}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Цена (USD)</span><span className={styles.paramValue}>${Number(selectedUnit.price).toLocaleString()}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Цена (GEL)</span><span className={styles.paramValue}>{Math.round(selectedUnit.price * parseFloat(exchangeRate)).toLocaleString()} ₾</span></div>
-                      {promoMap[selectedUnit.id] && (() => {
-                        const promo = promoMap[selectedUnit.id];
-                        const pr = calcPromoPrice(selectedUnit.price, selectedUnit.area, promo, promo.nbgRate);
-                        return (
-                          <div className={styles.paramItem} style={{ gridColumn: 'span 2', background: '#fef2f2', border: '1px solid #fecaca' }}>
-                            <span className={styles.paramLabel} style={{ color: '#dc2626' }}> Акция: {promo.name}</span>
-                            <span className={styles.paramValue} style={{ color: '#dc2626' }}>
-                              {formatEffectSummary(promo)} → ${pr.promoPriceUSD.toLocaleString()} ({pr.promoPriceGEL.toLocaleString()} ₾)
+                    {/* Привязанная сделка — быстрый переход на карточку сделки */}
+                    {unitDeals.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                        {unitDeals.map((d: any) => (
+                          <a
+                            key={d.id}
+                            href={`/deals?highlightDealId=${d.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textDecoration: 'none', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '10px 14px' }}
+                          >
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e3a8a' }}>
+                              Сделка #{d.id.slice(0, 8)}{d.createdAt ? ` · ${new Date(d.createdAt).toLocaleDateString('ru-RU')}` : ''}
                             </span>
-                            <div style={{ fontSize: '0.7rem', color: '#991b1b', marginTop: '2px' }}>
-                              До {mounted ? formatGeorgiaDateTime(promo.endAt) : '…'}
-                            </div>
-                          </div>
-                        );
-                      })()}
-                      {lockedDealMap[selectedUnit.id] && (
-                        <div className={styles.paramItem} style={{ gridColumn: 'span 2', background: '#eff6ff', border: '1px solid #bfdbfe' }}>
-                          <span className={styles.paramLabel} style={{ color: '#1e3a8a' }}>
-                             В договоре{lockedDealMap[selectedUnit.id].promotionName ? ` (акция «${lockedDealMap[selectedUnit.id].promotionName}»)` : ''}
-                          </span>
-                          <span className={styles.paramValue} style={{ color: '#1e3a8a' }}>
-                            ${Math.round(lockedDealMap[selectedUnit.id].totalAmount).toLocaleString()}
-                          </span>
-                          <div style={{ fontSize: '0.7rem', color: '#1e40af', marginTop: '2px' }}>
-                            Цена зафиксирована — клиент: {lockedDealMap[selectedUnit.id].leadName || '—'}
-                          </div>
-                        </div>
-                      )}
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563eb' }}>Открыть →</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Характеристики */}
+                    <div className={styles.paramGridCompact}>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>№ квартиры</span><span className={styles.paramValue}>{selectedUnit.number}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Корпус</span><span className={styles.paramValue}>{currentBlock?.number || '—'}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Этаж</span><span className={styles.paramValue}>{selectedUnit.floor}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Подъезд (PTD)</span><span className={styles.paramValue}>{selectedUnit.entrance || '—'}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Тип</span><span className={styles.paramValue}>{selectedUnit.type === 'Apartment' ? 'Жилая' : selectedUnit.type}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Комнат</span><span className={styles.paramValue}>{selectedUnit.rooms}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Площадь</span><span className={styles.paramValue}>{selectedUnit.area} м²</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Жилая площадь</span><span className={styles.paramValue}>{selectedUnit.livingArea ? `${selectedUnit.livingArea} м²` : '—'}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Балкон</span><span className={styles.paramValue}>{selectedUnit.balconyArea ? `${selectedUnit.balconyArea} м²` : '—'}</span></div>
                       {selectedUnit.viewType && (
-                        <div className={styles.paramItem} style={{ gridColumn: 'span 2' }}><span className={styles.paramLabel}>Вид из окон</span><span className={styles.paramValue}>{selectedUnit.viewType}</span></div>
+                        <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Вид из окон</span><span className={styles.paramValue}>{selectedUnit.viewType}</span></div>
                       )}
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Балкон</span><span className={styles.paramValue}>{selectedUnit.balconyArea ? `${selectedUnit.balconyArea} м²` : '—'}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Цена м² с НДС</span><span className={styles.paramValue}>{selectedUnit.pricePerSqmVAT != null ? `$${Number(selectedUnit.pricePerSqmVAT).toLocaleString()}` : '—'}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Номер контракта</span><span className={styles.paramValue}>{selectedUnit.contractNumber || '—'}</span></div>
-                      <div className={styles.paramItem}>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Статус</span><span className={styles.paramValue}>{getStatusName(selectedUnit.status)}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Доступна к продаже</span><span className={styles.paramValue}>{(selectedUnit.status === 'FREE' && selectedUnit.availableForSale !== false) ? 'Да' : 'Нет'}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Цена (USD)</span><span className={styles.paramValue}>${Number(selectedUnit.price).toLocaleString()}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Цена (GEL)</span><span className={styles.paramValue}>{Math.round(selectedUnit.price * parseFloat(exchangeRate)).toLocaleString()} ₾</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Цена м² с НДС</span><span className={styles.paramValue}>{selectedUnit.pricePerSqmVAT != null ? `$${Number(selectedUnit.pricePerSqmVAT).toLocaleString()}` : '—'}</span></div>
+                      <div className={styles.paramItemCompact}><span className={styles.paramLabel}>Номер контракта</span><span className={styles.paramValue}>{selectedUnit.contractNumber || '—'}</span></div>
+                      <div className={styles.paramItemCompact}>
                         <span className={styles.paramLabel}>Дата сдачи объекта</span>
                         <span className={styles.paramValue}>
                           {selectedUnit.deliveryDate
@@ -1666,8 +1698,34 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 : '—'}
                         </span>
                       </div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Регистрация в реестре</span><span className={styles.paramValue}>{selectedUnit.registeredInPublicRegistry ? 'Да' : 'Нет'}</span></div>
-                      <div className={styles.paramItem}><span className={styles.paramLabel}>Доступна к продаже</span><span className={styles.paramValue}>{(selectedUnit.status === 'FREE' && selectedUnit.availableForSale !== false) ? 'Да' : 'Нет'}</span></div>
+                      {promoMap[selectedUnit.id] && (() => {
+                        const promo = promoMap[selectedUnit.id];
+                        const pr = calcPromoPrice(selectedUnit.price, selectedUnit.area, promo, promo.nbgRate);
+                        return (
+                          <div className={styles.paramItemCompact} style={{ gridColumn: 'span 3', background: '#fef2f2', border: '1px solid #fecaca' }}>
+                            <span className={styles.paramLabel} style={{ color: '#dc2626' }}> Акция: {promo.name}</span>
+                            <span className={styles.paramValue} style={{ color: '#dc2626' }}>
+                              {formatEffectSummary(promo)} → ${pr.promoPriceUSD.toLocaleString()} ({pr.promoPriceGEL.toLocaleString()} ₾)
+                            </span>
+                            <div style={{ fontSize: '0.7rem', color: '#991b1b', marginTop: '2px' }}>
+                              До {mounted ? formatGeorgiaDateTime(promo.endAt) : '…'}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      {lockedDealMap[selectedUnit.id] && (
+                        <div className={styles.paramItemCompact} style={{ gridColumn: 'span 3', background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                          <span className={styles.paramLabel} style={{ color: '#1e3a8a' }}>
+                             В договоре{lockedDealMap[selectedUnit.id].promotionName ? ` (акция «${lockedDealMap[selectedUnit.id].promotionName}»)` : ''}
+                          </span>
+                          <span className={styles.paramValue} style={{ color: '#1e3a8a' }}>
+                            ${Math.round(lockedDealMap[selectedUnit.id].totalAmount).toLocaleString()}
+                          </span>
+                          <div style={{ fontSize: '0.7rem', color: '#1e40af', marginTop: '2px' }}>
+                            Цена зафиксирована — клиент: {lockedDealMap[selectedUnit.id].leadName || '—'}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Экспликация помещений квартиры */}
@@ -1830,14 +1888,14 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 className={`${styles.bookingTypeTab} ${bookingType === 'SOFT' ? styles.bookingTypeTabActiveSoft : ''}`} 
                                 onClick={() => setBookingType('SOFT')}
                               >
-                                SOFT бронь
+                                Софт бронь
                               </button>
                               <button
                                 type="button"
                                 className={`${styles.bookingTypeTab} ${bookingType === 'HARD' ? styles.bookingTypeTabActiveHard : ''}`}
                                 onClick={() => setBookingType('HARD')}
                               >
-                                HARD бронь
+                                Хард бронь
                               </button>
                               <button 
                                 type="button"
@@ -2229,12 +2287,12 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                             </div>
                             <div className={styles.formGroup}>
                               <label>Размер скидки ($)</label>
-                              <input type="number" className={styles.input} value={calcDiscountAmount} onChange={e => { setCalcDiscountAmount(Number(e.target.value)); markCustom(); }} />
+                              <input type="number" className={styles.input} value={displayNum(calcDiscountAmount)} onChange={e => { setCalcDiscountAmount(Number(e.target.value)); markCustom(); }} />
                             </div>
                           </div>
                           <div className={styles.formGroup} style={{ marginTop: '10px', maxWidth: '260px' }}>
                             <label>Курс НБГ (₾ / $)</label>
-                            <input type="number" step="0.0001" className={styles.input} value={calcNbgRate} onChange={e => setCalcNbgRate(Number(e.target.value))} />
+                            <input type="number" step="0.0001" className={styles.input} value={displayNum(calcNbgRate)} onChange={e => setCalcNbgRate(Number(e.target.value))} />
                           </div>
                           <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#475569' }}>
                             Итоговая цена (с учётом скидки): <strong>${calcLiveFinalPrice.toLocaleString()}</strong>
@@ -2275,8 +2333,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                             <div className={styles.installmentGridRow}>
                               <div className={styles.installmentGridLabel}>Первый взнос</div>
                               <input type="date" className={styles.input} value={calcFirstPaymentDate} onChange={e => { setCalcFirstPaymentDate(e.target.value); markCustom(); }} />
-                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''}`} value={derivedFirstAmount} onChange={e => handleFirstAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''}`} value={calcFirstPercent} onChange={e => handleFirstPercentChange(Number(e.target.value))} />
+                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(derivedFirstAmount, !calcFirstPaymentDate)} onChange={e => handleFirstAmountChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(calcFirstPercent, !calcFirstPaymentDate)} onChange={e => handleFirstPercentChange(Number(e.target.value))} />
                             </div>
 
                             {/* Строка 2: Периодический платёж */}
@@ -2292,16 +2350,16 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 {' – '}
                                 {calcAutoDates.scheduleEndDate ? formatDateRu(calcAutoDates.scheduleEndDate) : '--.--.--'}
                               </div>
-                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''}`} value={derivedRecurringAmount} onChange={e => handleRecurringAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''}`} value={calcRecurringPercent} onChange={e => handleRecurringPercentChange(Number(e.target.value))} />
+                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(derivedRecurringAmount, !calcFirstPaymentDate)} onChange={e => handleRecurringAmountChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(calcRecurringPercent, !calcFirstPaymentDate)} onChange={e => handleRecurringPercentChange(Number(e.target.value))} />
                             </div>
 
                             {/* Строка 3: Остаток */}
                             <div className={styles.installmentGridRow}>
                               <div className={styles.installmentGridLabel}>Остаток (финальный платёж)</div>
                               <div className={styles.paramValue} style={{ display: 'flex', alignItems: 'center', color: calcEffectiveDeliveryDate ? '#1e293b' : '#94a3b8', fontSize: '0.8rem' }}>{calcEffectiveDeliveryDate ? formatDateRu(calcEffectiveDeliveryDate) : '--.--.--'}</div>
-                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''}`} value={derivedLastAmount} onChange={e => handleLastAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''}`} value={calcLastPercent} onChange={e => handleLastPercentChange(Number(e.target.value))} />
+                              <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(derivedLastAmount, !calcFirstPaymentDate)} onChange={e => handleLastAmountChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(calcLastPercent, !calcFirstPaymentDate)} onChange={e => handleLastPercentChange(Number(e.target.value))} />
                             </div>
                           </div>
                           <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '6px' }}>
@@ -2312,7 +2370,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
 
                           <div className={styles.formGroup} style={{ marginTop: '12px' }}>
                             <label>Комментарий</label>
-                            <input className={styles.input} value={calcComment} onChange={e => setCalcComment(e.target.value)} placeholder="Свободный текст" />
+                            <input className={styles.input} value={calcComment} onChange={e => setCalcComment(e.target.value)} />
                           </div>
 
                           <button type="button" onClick={handleRunCalculation} style={{ marginTop: '12px', padding: '8px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>
@@ -2493,9 +2551,17 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
 
       {/* Модалка создания квартиры */}
       {showCreateUnitModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowCreateUnitModal(false)}>
-          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
-            <h2>Создание новой квартиры</h2>
+        <div className={styles.fullscreenModalOverlay}>
+          <div className={styles.fullscreenModalContent}>
+            <div className={styles.fullscreenModalHeader}>
+              <h2 style={{ margin: 0 }}>Создание нового помещения</h2>
+              <button onClick={() => setShowCreateUnitModal(false)} className={styles.closeBtn}>×</button>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Тип помещения *</label>
+              <select className={styles.input} value={editUnitData.type} onChange={e => setEditUnitData({...editUnitData, type: e.target.value})}><option value="Apartment">Квартира</option><option value="Commercial">Коммерция</option><option value="Parking">Паркинг</option><option value="Storage">Кладовка</option></select>
+            </div>
             <div className={styles.formGroup}>
               <label>Корпус *</label>
               <select className={styles.input} value={selectedBlockId} onChange={e => setSelectedBlockId(e.target.value)}>
@@ -2516,30 +2582,21 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
               <div className={styles.formGroup}><label>Цена (USD) *</label><input type="number" className={styles.input} value={editUnitData.price} onChange={e => setEditUnitData({...editUnitData, price: e.target.value})} /></div>
             </div>
             <div className={styles.formRow}>
-              <div className={styles.formGroup}><label>Тип</label><select className={styles.input} value={editUnitData.type} onChange={e => setEditUnitData({...editUnitData, type: e.target.value})}><option value="Apartment">Квартира</option><option value="Commercial">Коммерция</option><option value="Parking">Паркинг</option><option value="Storage">Кладовка</option></select></div>
+              <div className={styles.formGroup}><label>Балкон (м²)</label><input type="number" step="0.1" className={styles.input} value={editUnitData.balconyArea} onChange={e => setEditUnitData({...editUnitData, balconyArea: e.target.value})} /></div>
               <div className={styles.formGroup}><label>Вид из окна</label><input className={styles.input} value={editUnitData.viewType} onChange={e => setEditUnitData({...editUnitData, viewType: e.target.value})} placeholder="На город, во двор..." /></div>
             </div>
             <div className={styles.formRow}>
-              <div className={styles.formGroup}><label>Балкон (м²)</label><input type="number" step="0.1" className={styles.input} value={editUnitData.balconyArea} onChange={e => setEditUnitData({...editUnitData, balconyArea: e.target.value})} /></div>
               <div className={styles.formGroup}><label>Цена м² с НДС (USD)</label><input type="number" step="0.01" className={styles.input} value={editUnitData.pricePerSqmVAT} onChange={e => setEditUnitData({...editUnitData, pricePerSqmVAT: e.target.value})} /></div>
-            </div>
-            <div className={styles.formRow}>
               <div className={styles.formGroup}><label>Номер контракта</label><input className={styles.input} value={editUnitData.contractNumber} onChange={e => setEditUnitData({...editUnitData, contractNumber: e.target.value})} placeholder="PB/SALES/001" /></div>
+            </div>
+            <div className={styles.formRow}>
               <div className={styles.formGroup}><label>Дата сдачи объекта</label><input type="date" className={styles.input} value={editUnitData.deliveryDate} onChange={e => setEditUnitData({...editUnitData, deliveryDate: e.target.value})} /></div>
-            </div>
-            <div className={styles.formRow}>
               <div className={styles.formGroup}><label>Год сдачи</label><input type="number" className={styles.input} value={editUnitData.deliveryYear} onChange={e => setEditUnitData({...editUnitData, deliveryYear: e.target.value})} placeholder="2028" /></div>
-              <div className={styles.formGroup}><label>Месяц сдачи</label><input type="number" min="1" max="12" className={styles.input} value={editUnitData.deliveryMonth} onChange={e => setEditUnitData({...editUnitData, deliveryMonth: e.target.value})} placeholder="1–12" /></div>
             </div>
             <div className={styles.formRow}>
+              <div className={styles.formGroup}><label>Месяц сдачи</label><input type="number" min="1" max="12" className={styles.input} value={editUnitData.deliveryMonth} onChange={e => setEditUnitData({...editUnitData, deliveryMonth: e.target.value})} placeholder="1–12" /></div>
               <div className={styles.formGroup}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={editUnitData.registeredInPublicRegistry} onChange={e => setEditUnitData({...editUnitData, registeredInPublicRegistry: e.target.checked})} />
-                  Зарегистрировано в публичном реестре
-                </label>
-              </div>
-              <div className={styles.formGroup}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '10px' }}>
                   <input type="checkbox" checked={editUnitData.availableForSale} onChange={e => setEditUnitData({...editUnitData, availableForSale: e.target.checked})} />
                   Доступна к продаже
                 </label>
@@ -2548,54 +2605,54 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
             <div className={styles.formGroup} style={{ marginBottom: '16px' }}>
               <label>Изображение планировки (2D)</label>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input 
-                  type="text" 
-                  className={styles.input} 
-                  value={editUnitData.layoutUrl} 
-                  onChange={e => setEditUnitData({...editUnitData, layoutUrl: e.target.value})} 
+                <input
+                  type="text"
+                  className={styles.input}
+                  value={editUnitData.layoutUrl}
+                  onChange={e => setEditUnitData({...editUnitData, layoutUrl: e.target.value})}
                   placeholder="Вставьте ссылку URL или выберите файл..."
                   style={{ flex: 1 }}
                 />
-                <button 
+                <button
                   type="button"
                   onClick={() => document.getElementById('createUnitLayoutUpload')?.click()}
                   style={{ padding: '8px 12px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', whiteSpace: 'nowrap' }}
                 >
                    Обзор...
                 </button>
-                <input 
-                  id="createUnitLayoutUpload" 
-                  type="file" 
-                  accept="image/*" 
-                  style={{ display: 'none' }} 
-                  onChange={(e) => handleFileUpload(e, 'create', 'layoutUrl')} 
+                <input
+                  id="createUnitLayoutUpload"
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleFileUpload(e, 'create', 'layoutUrl')}
                 />
               </div>
             </div>
             <div className={styles.formGroup} style={{ marginBottom: '16px' }}>
               <label>Визуализация квартиры (3D)</label>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input 
-                  type="text" 
-                  className={styles.input} 
-                  value={editUnitData.layout3dUrl} 
-                  onChange={e => setEditUnitData({...editUnitData, layout3dUrl: e.target.value})} 
+                <input
+                  type="text"
+                  className={styles.input}
+                  value={editUnitData.layout3dUrl}
+                  onChange={e => setEditUnitData({...editUnitData, layout3dUrl: e.target.value})}
                   placeholder="Вставьте ссылку URL 3D рендера..."
                   style={{ flex: 1 }}
                 />
-                <button 
+                <button
                   type="button"
                   onClick={() => document.getElementById('createUnitLayout3dUpload')?.click()}
                   style={{ padding: '8px 12px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', whiteSpace: 'nowrap' }}
                 >
                    Обзор...
                 </button>
-                <input 
-                  id="createUnitLayout3dUpload" 
-                  type="file" 
-                  accept="image/*" 
-                  style={{ display: 'none' }} 
-                  onChange={(e) => handleFileUpload(e, 'create', 'layout3dUrl')} 
+                <input
+                  id="createUnitLayout3dUpload"
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleFileUpload(e, 'create', 'layout3dUrl')}
                 />
               </div>
             </div>

@@ -654,6 +654,30 @@
   color: #1e293b;
 }
 
+/* Компактная сетка характеристик помещения — 3 колонки, меньше отступов, чтобы
+   уместить много полей без лишнего скролла */
+.paramGridCompact {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.paramItemCompact {
+  background: #f8fafc;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #f1f5f9;
+}
+
+.paramItemCompact .paramLabel {
+  font-size: 0.65rem;
+  margin-bottom: 3px;
+}
+
+.paramItemCompact .paramValue {
+  font-size: 0.95rem;
+}
+
 /* Клиентская карточка */
 .associatedClientCard {
   background: white;
@@ -1105,6 +1129,31 @@
   border-radius: 8px;
   font-weight: 700;
   cursor: pointer;
+}
+
+/* Полноэкранная модалка (создание помещения) — своя пара классов, чтобы не задевать
+   обычные компактные модалки, которые используют .modalOverlay/.modalContent */
+.fullscreenModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: #ffffff;
+  z-index: 2000;
+  overflow-y: auto;
+}
+
+.fullscreenModalContent {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 40px 80px;
+}
+
+.fullscreenModalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f1f5f9;
 }
 
 /*  Modal for Import  */
@@ -1566,6 +1615,18 @@
   margin-bottom: 0;
 }
 
+.formGroup {
+  margin-bottom: 16px;
+}
+
+.formGroup label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #475569;
+}
+
 .editUnitBtn {
   background: #f1f5f9;
   border: none;
@@ -1617,6 +1678,12 @@
   border-radius: 10px;
   font-size: 0.9rem;
   background: white;
+}
+
+.input:disabled {
+  color: #cbd5e1;
+  background: #f8fafc;
+  cursor: not-allowed;
 }
 
 .input:focus {
