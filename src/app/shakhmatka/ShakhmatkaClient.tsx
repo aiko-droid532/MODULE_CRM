@@ -1387,7 +1387,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
       <div className={`${styles.mainContent} ${selectedUnit ? styles.mainContentShifted : ''}`}>
         <header className={styles.header}>
           <div className={styles.titleArea}>
-            <h1>Умная Шахматка</h1>
+            <h1>Шахматка</h1>
             <p>Курс: {rateLoading ? 'Загрузка...' : `${exchangeRate} ₾/$`}</p>
           </div>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
