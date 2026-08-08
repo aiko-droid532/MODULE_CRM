@@ -10,6 +10,7 @@ import {
   anonymizeClient,
   logPhoneView,
   qualifyLead,
+  saveSearchCriteria,
 } from "@/app/actions/leads";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -504,6 +505,17 @@ export default function LeadDossier({
     setLoading(true);
     const res = await addInterest(lead.id, unitId);
     if (res.success) {
+      // Фиксируем параметры уже выбранного варианта — то, что человек реально выбрал
+      // из результатов, может отличаться от того, что было введено в фильтр поиска.
+      const picked = searchResults.find((u: any) => u.id === unitId);
+      if (picked) {
+        saveSearchCriteria(lead.id, {
+          rooms: picked.rooms,
+          minArea: picked.area,
+          maxPrice: picked.price,
+          type: picked.type,
+        }, 'select', managerId).catch(() => {});
+      }
       const updated = await getLeadById(lead.id);
       if (updated) setLead(updated);
       alert("Объект успешно добавлен");
@@ -545,6 +557,14 @@ export default function LeadDossier({
 
   const handleSearch = async () => {
     setLoading(true);
+    // Сохраняем параметры поиска сразу — лид/клиент не обязательно выберет
+    // конкретную квартиру сейчас, но то, что он искал, должно быть зафиксировано.
+    saveSearchCriteria(lead.id, {
+      rooms: filters.rooms,
+      minArea: filters.minArea,
+      maxPrice: filters.maxPrice,
+      type: filters.type,
+    }, 'search', managerId).catch(() => {});
     const results = await searchUnits({
       rooms: filters.rooms ? parseInt(filters.rooms) : undefined,
       maxPrice: filters.maxPrice ? parseFloat(filters.maxPrice) : undefined,

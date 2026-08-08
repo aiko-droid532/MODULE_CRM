@@ -458,24 +458,25 @@ export async function getDealHistory(dealId: string) {
 // Получить всех клиентов сделки (основной из Deal + дополнительные из DealClient)
 export async function getDealClients(dealId: string) {
   try {
-    // Получаем основного клиента из самой сделки
-    const dealRows: any[] = await prisma.$queryRaw`
-      SELECT d."leadId", l.name, l.phone, l.email, l.iin
-      FROM "Deal" d
-      JOIN "Lead" l ON d."leadId" = l.id
-      WHERE d."id" = ${dealId}
-      LIMIT 1
-    `;
-
-    // Получаем дополнительных клиентов из DealClient
-    const extraClients: any[] = await prisma.$queryRaw`
-      SELECT dc.id, dc."leadId", dc."isPrimary", dc."createdAt",
-             l.name, l.phone, l.email, l.iin
-      FROM "DealClient" dc
-      JOIN "Lead" l ON dc."leadId" = l.id
-      WHERE dc."dealId" = ${dealId}
-      ORDER BY dc."isPrimary" DESC, dc."createdAt" ASC
-    `;
+    // Основной клиент сделки и дополнительные клиенты (DealClient) не зависят друг
+    // от друга — грузим параллельно, а не по очереди.
+    const [dealRows, extraClients]: [any[], any[]] = await Promise.all([
+      prisma.$queryRaw`
+        SELECT d."leadId", l.name, l.phone, l.email, l.iin
+        FROM "Deal" d
+        JOIN "Lead" l ON d."leadId" = l.id
+        WHERE d."id" = ${dealId}
+        LIMIT 1
+      `,
+      prisma.$queryRaw`
+        SELECT dc.id, dc."leadId", dc."isPrimary", dc."createdAt",
+               l.name, l.phone, l.email, l.iin
+        FROM "DealClient" dc
+        JOIN "Lead" l ON dc."leadId" = l.id
+        WHERE dc."dealId" = ${dealId}
+        ORDER BY dc."isPrimary" DESC, dc."createdAt" ASC
+      `,
+    ]);
 
     // Если основной клиент уже есть в DealClient — не дублируем
     const primaryLeadId = dealRows[0]?.leadId;

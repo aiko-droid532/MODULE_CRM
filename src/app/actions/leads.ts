@@ -1057,6 +1057,51 @@ export async function qualifyLead(leadId: string, data: {
   }
 }
 
+// Фиксация поискового поведения лида (не путать с ручной анкетой qualifyLead) —
+// вызывается из LeadDossier при поиске ('search') и при выборе конкретного варианта
+// из результатов ('select'), чтобы анкета отражала реальные интересы клиента, даже
+// если он ещё не заполнял её вручную. Best-effort: вызывающий код не проверяет success
+// и глушит ошибку — эта фиксация не должна блокировать сам поиск/подбор объекта.
+export async function saveSearchCriteria(
+  leadId: string,
+  criteria: { rooms?: number | string | null; minArea?: number | string | null; maxPrice?: number | string | null; type?: string | null },
+  mode: 'search' | 'select',
+  managerId?: string
+) {
+  try {
+    const rooms = criteria.rooms === '' || criteria.rooms == null ? null : Number(criteria.rooms);
+    const minArea = criteria.minArea === '' || criteria.minArea == null ? null : Number(criteria.minArea);
+    const maxPrice = criteria.maxPrice === '' || criteria.maxPrice == null ? null : Number(criteria.maxPrice);
+
+    await prisma.$executeRaw`
+      UPDATE "Lead"
+      SET
+        "roomsInterested" = COALESCE(${rooms}, "roomsInterested"),
+        "areaMin" = COALESCE(${minArea}, "areaMin"),
+        "budgetMax" = COALESCE(${maxPrice}, "budgetMax"),
+        "propertyType" = COALESCE(${criteria.type || null}, "propertyType"),
+        "updatedAt" = NOW()
+      WHERE id = ${leadId}
+    `;
+
+    await prisma.$executeRaw`
+      INSERT INTO "ChangeLog" ("id", "leadId", "managerId", "field", "oldValue", "newValue", "createdAt")
+      VALUES (
+        ${crypto.randomUUID()}, ${leadId}, ${managerId || 'system'},
+        ${mode === 'search' ? 'SEARCH_CRITERIA' : 'SELECTED_UNIT_CRITERIA'},
+        null,
+        ${`Комнат: ${rooms ?? '—'}, площадь от: ${minArea ?? '—'}, бюджет до: ${maxPrice ?? '—'}, тип: ${criteria.type || '—'}`},
+        NOW()
+      )
+    `;
+
+    return { success: true };
+  } catch (error) {
+    console.error('saveSearchCriteria error:', error);
+    return { success: false };
+  }
+}
+
 export async function escalateExpiredLeads() {
   try {
     const expiredLeads: any[] = await prisma.$queryRaw`
