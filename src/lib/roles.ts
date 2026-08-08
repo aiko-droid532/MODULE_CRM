@@ -23,10 +23,10 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 // ─── Навигация ────────────────────────────────────────────────────────────────
 // Список разделов которые роль может видеть в меню
 export const NAV_ACCESS: Record<UserRole, string[]> = {
-  admin:          ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports'],
-  rop:            ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports'],
-  senior_manager: ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance'],
-  manager:        ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance'],
+  admin:          ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts'],
+  rop:            ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts'],
+  senior_manager: ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'debts'],
+  manager:        ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'debts'],
   lawyer:         ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports'],
   marketing:      ['analytics'],
   call_center:    ['analytics'],

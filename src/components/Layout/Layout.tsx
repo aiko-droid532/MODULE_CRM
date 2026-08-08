@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { name: 'Ценообразование',      path: '/pricing',      icon: <FinanceIcon />,   section: 'pricing'    },
   { name: 'Договоры',             path: '/contracts',    icon: <ReportsIcon />,   section: 'contracts'  },
   { name: 'Финансы',              path: '/finance',      icon: <FinanceIcon />,   section: 'finance'    },
+  { name: 'Задолженность',        path: '/debts',        icon: <FinanceIcon />,   section: 'debts'      },
   { name: 'Отчеты',               path: '/reports',      icon: <ReportsIcon />,   section: 'reports'    },
   { name: 'Интеграция Georgia',    path: '/integration',  icon: <AnalyticsIcon />, section: 'analytics'  },
 ];

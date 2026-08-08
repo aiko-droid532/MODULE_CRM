@@ -17,6 +17,8 @@ import { getExchangeRate } from "@/app/actions/exchange";
 import { getUnitForCalculator } from "@/app/actions/units";
 import { getLivePromotionForUnit } from "@/app/actions/promotions";
 import { getApplicableCumulativeDiscount } from "@/app/actions/loyalty";
+import { getDebtRowsForLead } from "@/app/actions/debts";
+import { DEBT_STATUS_LABELS } from "@/lib/debtStatus";
 import { calcPromoPrice, formatEffectSummary } from "@/lib/promotionCalculator";
 import { canManageDeals, isReadOnly, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel, UserRole } from "@/lib/roles";
 import {
@@ -176,6 +178,16 @@ export default function LeadDossier({
     }
     loadRate();
   }, []);
+
+  // Блок задолженности в карточке клиента (FR-CD-10) — по всем сделкам этого лида
+  const [debtRows, setDebtRows] = useState<any[]>([]);
+  useEffect(() => {
+    async function loadDebt() {
+      const rows = await getDebtRowsForLead(lead.id, organizationId);
+      setDebtRows(rows);
+    }
+    loadDebt();
+  }, [lead.id, organizationId]);
 
   useEffect(() => {
     async function loadFullData() {
@@ -728,6 +740,23 @@ export default function LeadDossier({
             Закрыть
           </button>
         </header>
+
+        {debtRows.length > 0 && (
+          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '12px 20px', margin: '0 32px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <strong style={{ color: '#991b1b', fontSize: '0.9rem' }}> Задолженность по графику оплаты</strong>
+              <a href="/debts" target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563eb', textDecoration: 'none' }}>Открыть в реестре →</a>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {debtRows.map((row: any) => (
+                <div key={row.scheduleId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', background: 'white', borderRadius: '8px', padding: '6px 10px', border: '1px solid #fee2e2' }}>
+                  <span>{row.projectName ? `${row.projectName}, №${row.unitNumber} — ` : ''}${row.debtAmount.toLocaleString()}{row.daysOverdue > 0 ? ` · просрочка ${row.daysOverdue} дн.` : ''}</span>
+                  <span style={{ fontWeight: 700, color: '#991b1b' }}>{DEBT_STATUS_LABELS[row.status as keyof typeof DEBT_STATUS_LABELS]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <nav className={styles.tabs}>
           <button

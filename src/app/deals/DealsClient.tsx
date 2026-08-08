@@ -19,6 +19,8 @@ import { getProjects } from '@/app/actions/units';
 import LeadDossier from '@/components/Leads/LeadDossier';
 import { getDealGifts, addDealGift, removeDealGift, getAvailableGiftUnits } from '@/app/actions/gifts';
 import { getPendingDiscountRequest, approveDiscountRequest, rejectDiscountRequest } from '@/app/actions/discountApprovals';
+import { getDebtRowsForDeal } from '@/app/actions/debts';
+import { DEBT_STATUS_LABELS } from '@/lib/debtStatus';
 import LeadModal from '@/components/Leads/LeadModal';
 import { useRouter } from 'next/navigation';
 
@@ -324,6 +326,7 @@ const [dealClients, setDealClients] = useState<any[]>([]);
 const [dealUnits, setDealUnits] = useState<any[]>([]);
 const [dealGifts, setDealGifts] = useState<any[]>([]);
 const [pendingDiscountRequest, setPendingDiscountRequest] = useState<any>(null);
+const [dealDebtRows, setDealDebtRows] = useState<any[]>([]);
 const [dealHistory, setDealHistory] = useState<any[]>([]);
 const [historyTypeFilter, setHistoryTypeFilter] = useState('ALL');
 const [historySearch, setHistorySearch] = useState('');
@@ -455,6 +458,7 @@ const loadDealExtras = async (dealId: string) => {
   const gifts = await getDealGifts(dealId);
   const pendingDiscount = await getPendingDiscountRequest(dealId);
   const historyRes = await getDealHistory(dealId);
+  const debtRows = await getDebtRowsForDeal(dealId, organizationId);
   setDealClients(clients);
   setDealUnits(units);
   setDealGifts(gifts);
@@ -462,6 +466,7 @@ const loadDealExtras = async (dealId: string) => {
   setDealHistory(historyRes.success ? historyRes.history : []);
   setHistoryTypeFilter('ALL');
   setHistorySearch('');
+  setDealDebtRows(debtRows);
 };
 
 // Обновленный handleCardClick
@@ -1043,6 +1048,23 @@ const handleSetPrimaryClient = async (leadId: string) => {
   {pendingDiscountRequest && !canApprove && (
     <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '10px 14px', marginBottom: '16px', fontSize: '0.85rem', color: '#b45309' }}>
        Скидка {pendingDiscountRequest.proposedDiscountPercent}% ожидает согласования РОП.
+    </div>
+  )}
+  {/* БЛОК ЗАДОЛЖЕННОСТИ (FR-CD-10) */}
+  {dealDebtRows.length > 0 && (
+    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '14px 15px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <strong style={{ color: '#991b1b', fontSize: '0.95rem' }}> Задолженность по графику оплаты</strong>
+        <a href="/debts" target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.78rem', fontWeight: 700, color: '#2563eb', textDecoration: 'none' }}>Открыть в реестре →</a>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {dealDebtRows.map(row => (
+          <div key={row.scheduleId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem', background: 'white', borderRadius: '8px', padding: '8px 12px', border: '1px solid #fee2e2' }}>
+            <span>Платёж от {new Date(row.dueDate).toLocaleDateString('ru-RU')} — <strong>${row.debtAmount.toLocaleString()}</strong>{row.daysOverdue > 0 ? ` · просрочка ${row.daysOverdue} дн.` : ''}</span>
+            <span style={{ fontWeight: 700, color: '#991b1b' }}>{DEBT_STATUS_LABELS[row.status as keyof typeof DEBT_STATUS_LABELS]}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )}
   {/* БЛОК ДАННЫЕ КЛИЕНТА С ПЛЮСИКОМ */}

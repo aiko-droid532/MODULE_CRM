@@ -340,8 +340,28 @@ export async function updateDealStatus(dealId: string, status: any, previousStat
               "updatedAt" = NOW()
           WHERE id = ${dealId}
         `;
+        // Непогашенная просроченная задолженность не стирается вместе с планом —
+        // остаётся в реестре задолженности с отдельным статусом (см. UC-4 ТЗ "Реестр
+        // задолженности"), а не пропадает из истории вместе с расторгнутым договором.
+        const { initDebtTables } = await import('./debts');
+        await initDebtTables();
         await prisma.$executeRaw`
-          DELETE FROM "PaymentSchedule" WHERE "dealId" = ${dealId} AND status != 'PAID'
+          UPDATE "PaymentSchedule" ps
+          SET "debtFrozenReason" = 'CONTRACT_CANCELLED_UNPAID', "updatedAt" = NOW()
+          FROM "Deal" d
+          WHERE ps."dealId" = ${dealId}
+            AND d.id = ps."dealId"
+            AND ps.status != 'PAID'
+            AND ps."exemptionReasonId" IS NULL
+            AND COALESCE(ps."paidAmount", 0) < ps.amount
+            AND ps."dueDate" + (COALESCE(
+                  d."gracePeriodDaysOverride",
+                  (SELECT "gracePeriodDays" FROM "DebtSettings" WHERE "organizationId" = d."organizationId"),
+                  5
+                ) || ' days')::interval < NOW()
+        `;
+        await prisma.$executeRaw`
+          DELETE FROM "PaymentSchedule" WHERE "dealId" = ${dealId} AND status != 'PAID' AND "debtFrozenReason" IS NULL
         `;
       }
     } else {
