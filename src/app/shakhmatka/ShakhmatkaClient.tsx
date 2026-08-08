@@ -423,6 +423,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const [calcSaving, setCalcSaving] = useState(false);
   const [calcFullPaymentDate, setCalcFullPaymentDate] = useState('');
   const [calcCumulativeDiscount, setCalcCumulativeDiscount] = useState<any>(null);
+  // Заготовка коллеги под будущий блок "Ипотека" в калькуляторе (по аналогии с карточкой
+  // сделки на странице Сделки) — пока не подключена к UI/сохранению, оставлена как есть.
+  const [calcMortgageBank, setCalcMortgageBank] = useState('');
+  const [calcMortgageStatus, setCalcMortgageStatus] = useState<'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED'>('NONE');
   // Накопительные скидки скрыты (см. Pricing.SHOW_LOYALTY_TAB) — механика не должна нигде
   // действовать, поэтому она отключена и здесь, а не только на вкладке в Ценообразовании.
   const SHOW_CUMULATIVE_DISCOUNT = false;
