@@ -457,16 +457,30 @@ const [customDeleteReason, setCustomDeleteReason] = useState('');
 
 // Загрузить дополнительных клиентов и объекты для сделки
 const loadDealExtras = async (dealId: string) => {
+const loadDealExtras = async (dealId: string) => {
   latestDealRequestIdRef.current = dealId;
-  const clients = await getDealClients(dealId);
-  const units = await getDealUnits(dealId);
-  const gifts = await getDealGifts(dealId);
-  const pendingDiscount = await getPendingDiscountRequest(dealId);
-  const historyRes = await getDealHistory(dealId);
-  const debtRows = await getDebtRowsForDeal(dealId, organizationId);
+  // Эти 6 запросов не зависят друг от друга — грузим параллельно одним RTT
+  // вместо шести последовательных.
+  const [clients, units, gifts, pendingDiscount, historyRes, debtRows] = await Promise.all([
+    getDealClients(dealId),
+    getDealUnits(dealId),
+    getDealGifts(dealId),
+    getPendingDiscountRequest(dealId),
+    getDealHistory(dealId),
+    getDebtRowsForDeal(dealId, organizationId),
+  ]);
   // Пока грузили — пользователь мог открыть другую карточку. Тогда этот (устаревший)
   // ответ применять нельзя, иначе он перезапишет уже отрисованные данные новой сделки.
   if (latestDealRequestIdRef.current !== dealId) return;
+  setDealClients(clients);
+  setDealUnits(units);
+  setDealGifts(gifts);
+  setPendingDiscountRequest(pendingDiscount);
+  setDealHistory(historyRes.success ? historyRes.history : []);
+  setHistoryTypeFilter('ALL');
+  setHistorySearch('');
+  setDealDebtRows(debtRows);
+};
   setDealClients(clients);
   setDealUnits(units);
   setDealGifts(gifts);
