@@ -221,6 +221,10 @@ export default function DealsClient({ initialDeals, organizationId, userRole = '
   }[]>([]);
   const undoTimersRef = useRef<Record<string, { timer: NodeJS.Timeout; interval: NodeJS.Timeout }>>({});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Какая сделка была запрошена последней — если пользователь успел переключиться
+  // на другую карточку раньше, чем долетел ответ по предыдущей, применять его нельзя,
+  // иначе в карточку новой сделки попадут данные (в т.ч. задолженность) от старой.
+  const latestDealRequestIdRef = useRef<string | null>(null);
   const scrollAnimRef = useRef<number | null>(null);
 
   const startAutoScroll = (clientX: number) => {
@@ -453,12 +457,16 @@ const [customDeleteReason, setCustomDeleteReason] = useState('');
 
 // Загрузить дополнительных клиентов и объекты для сделки
 const loadDealExtras = async (dealId: string) => {
+  latestDealRequestIdRef.current = dealId;
   const clients = await getDealClients(dealId);
   const units = await getDealUnits(dealId);
   const gifts = await getDealGifts(dealId);
   const pendingDiscount = await getPendingDiscountRequest(dealId);
   const historyRes = await getDealHistory(dealId);
   const debtRows = await getDebtRowsForDeal(dealId, organizationId);
+  // Пока грузили — пользователь мог открыть другую карточку. Тогда этот (устаревший)
+  // ответ применять нельзя, иначе он перезапишет уже отрисованные данные новой сделки.
+  if (latestDealRequestIdRef.current !== dealId) return;
   setDealClients(clients);
   setDealUnits(units);
   setDealGifts(gifts);
@@ -483,6 +491,13 @@ const handleCardClick = async (deal: any) => {
   setMortgageBank(deal.mortgageBank || '');
   setMortgageStatus(deal.mortgageStatus || 'NONE');
   setMortgageComment(deal.mortgageComment || '');
+  // Сразу гасим данные предыдущей карточки, чтобы не мелькнула чужая задолженность/
+  // клиенты/объекты пока грузятся свежие — они всё равно сейчас относятся к другой сделке.
+  setDealClients([]);
+  setDealUnits([]);
+  setDealGifts([]);
+  setDealHistory([]);
+  setDealDebtRows([]);
   await loadDealExtras(deal.id);
 };
 

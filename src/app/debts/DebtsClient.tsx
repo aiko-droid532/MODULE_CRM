@@ -432,7 +432,7 @@ export default function DebtsClient({
       {exemptRow && (
         <div className={styles.modalOverlay} onClick={() => setExemptRow(null)}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
-            <h2>Освобождение от статуса «Просрочена»</h2>
+            <h2>Освобождение от статуса «Просрочен»</h2>
             <div className={styles.formGroup}>
               <label>Клиент</label>
               <div>{exemptRow.clientName} · {exemptRow.projectName}, №{exemptRow.unitNumber}</div>
