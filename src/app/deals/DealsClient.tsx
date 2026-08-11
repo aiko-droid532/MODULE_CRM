@@ -481,15 +481,6 @@ const loadDealExtras = async (dealId: string) => {
   setHistorySearch('');
   setDealDebtRows(debtRows);
 };
-  setDealClients(clients);
-  setDealUnits(units);
-  setDealGifts(gifts);
-  setPendingDiscountRequest(pendingDiscount);
-  setDealHistory(historyRes.success ? historyRes.history : []);
-  setHistoryTypeFilter('ALL');
-  setHistorySearch('');
-  setDealDebtRows(debtRows);
-};
 
 // Обновленный handleCardClick
 const handleCardClick = async (deal: any) => {
