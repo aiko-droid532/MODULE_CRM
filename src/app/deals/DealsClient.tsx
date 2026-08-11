@@ -457,10 +457,9 @@ const [customDeleteReason, setCustomDeleteReason] = useState('');
 
 // Загрузить дополнительных клиентов и объекты для сделки
 const loadDealExtras = async (dealId: string) => {
-const loadDealExtras = async (dealId: string) => {
   latestDealRequestIdRef.current = dealId;
   // Эти 6 запросов не зависят друг от друга — грузим параллельно одним RTT
-  // вместо шести последовательных.
+  // вместо шести последовательных (та же причина медленной загрузки, что была в getLeads).
   const [clients, units, gifts, pendingDiscount, historyRes, debtRows] = await Promise.all([
     getDealClients(dealId),
     getDealUnits(dealId),
