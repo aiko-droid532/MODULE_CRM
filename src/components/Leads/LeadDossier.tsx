@@ -737,9 +737,9 @@ export default function LeadDossier({
                     <span
                       className={styles.clientTypeBadge}
                       style={{
-                        background: ct.color + "18",
-                        color: ct.color,
-                        border: `1px solid ${ct.color}40`,
+                        background: ct.color + "40",
+                        color: "#ffffff",
+                        border: `1px solid ${ct.color}80`,
                       }}
                     >
                       {ct.icon} {ct.label}
@@ -1468,6 +1468,7 @@ export default function LeadDossier({
                     {loading ? "..." : "Найти объекты"}
                   </button>
                 </div>
+
                 <div className={styles.unitGrid}>
                   {searchResults.map((unit) => (
                     <div key={unit.id} className={styles.unitCardCompact}>

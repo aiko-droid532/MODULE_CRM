@@ -540,6 +540,133 @@ export async function deleteUnit(unitId: string, reason: string, organizationId:
   }
 }
 
+// Расторжение договора (см. "Расторжение договора.pdf") — узкая точечная операция:
+// - Unit: "Продано" -> "Свободна", больше ничего на юните не меняется (FR-10).
+// - Deal: НЕ меняется вообще — ни статус, ни другие поля (FR-20).
+// - PaymentSchedule: неоплаченные (PENDING/OVERDUE) записи графика ОСНОВНОГО объекта
+//   сделки переводятся в PAUSED с причиной "Расторжение" и меткой времени (FR-30/32/33).
+//   Уже оплаченные записи не трогаются (FR-31). Денежных операций/возвратов нет.
+// - Если расторгается дополнительный (не основной) объект сделки — у него своего
+//   графика платежей нет (график считается по основному объекту), поэтому график
+//   вообще не трогается — см. Сценарий 4 ТЗ.
+// - Идемпотентно: повторный вызов на не-"Продано" объекте отклоняется без изменений (FR-03, раздел 5).
+// - Атомарно: смена статуса юнита и приостановка платежей проходят в одной транзакции.
+export async function terminateUnitContract(unitId: string, organizationId: string, initiatorId: string) {
+  try {
+    await requireRole(canManageUnits, 'расторжение договора');
+
+    // Самомиграция схемы (по аналогии с другими self-migrating таблицами в проекте) —
+    // отдельными выполнениями, не в общей транзакции ниже (ALTER TYPE ADD VALUE нельзя
+    // использовать в той же транзакции, где он выполнен).
+    await prisma.$executeRaw`ALTER TABLE "PaymentSchedule" ADD COLUMN IF NOT EXISTS "pausedReason" TEXT`;
+    await prisma.$executeRaw`ALTER TABLE "PaymentSchedule" ADD COLUMN IF NOT EXISTS "pausedAt" TIMESTAMP WITH TIME ZONE`;
+    await prisma.$executeRaw`ALTER TYPE "PaymentStatus" ADD VALUE IF NOT EXISTS 'PAUSED'`;
+
+    // FR-01/FR-03: действие доступно только для помещения в статусе "Продано"
+    const unitRows: any[] = await prisma.$queryRaw`
+      SELECT status::text as status FROM "Unit" WHERE id = ${unitId} AND "organizationId" = ${organizationId} LIMIT 1
+    `;
+    const unit = unitRows[0];
+    if (!unit) {
+      return { success: false, error: 'UNIT_NOT_FOUND', message: 'Помещение не найдено.' };
+    }
+    if (unit.status !== 'SOLD') {
+      return {
+        success: false,
+        error: 'NOT_SOLD',
+        message: 'Расторжение возможно только для помещения в статусе "Продано". Возможно, оно уже расторгнуто или ещё не было продано.',
+      };
+    }
+
+    // FR-02: сделка и график определяются автоматически по действующей привязке
+    // Unit -> Deal -> PaymentSchedule, без ручного выбора сделки.
+    const primaryDealRows: any[] = await prisma.$queryRaw`
+      SELECT id FROM "Deal"
+      WHERE "unitId" = ${unitId} AND status::text NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')
+      ORDER BY "createdAt" DESC LIMIT 1
+    `;
+    const isPrimaryUnit = primaryDealRows.length > 0;
+    let relatedDealId: string | null = isPrimaryUnit ? primaryDealRows[0].id : null;
+
+    // Для аудита (FR-40) фиксируем, какой была связанная сделка на момент операции,
+    // даже если это дополнительный объект (график у него не считается отдельно).
+    if (!relatedDealId) {
+      const additionalDealRows: any[] = await prisma.$queryRaw`
+        SELECT "dealId" FROM "DealUnit" WHERE "unitId" = ${unitId} AND "isDeleted" = false LIMIT 1
+      `;
+      relatedDealId = additionalDealRows[0]?.dealId || null;
+    }
+
+    const { pool } = require('@/lib/db');
+    const client = await pool.connect();
+    let pausedPaymentsCount = 0;
+    try {
+      await client.query('BEGIN');
+
+      // Повторная проверка статуса внутри транзакции (блокировка строки) — защита от гонки
+      // при одновременном повторном вызове (идемпотентность, раздел 5 ТЗ).
+      const lockRows = await client.query(
+        `SELECT status::text as status FROM "Unit" WHERE id = $1 FOR UPDATE`,
+        [unitId]
+      );
+      if (!lockRows.rows.length || lockRows.rows[0].status !== 'SOLD') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          error: 'NOT_SOLD',
+          message: 'Расторжение возможно только для помещения в статусе "Продано".',
+        };
+      }
+
+      // FR-10: единственное изменение на Unit — статус "Продано" -> "Свободна"
+      await client.query(
+        `UPDATE "Unit" SET status = 'FREE'::"UnitStatus", "updatedAt" = NOW() WHERE id = $1`,
+        [unitId]
+      );
+
+      // FR-30/FR-21/Сценарий 4: график приостанавливается только если расторгаемый
+      // объект — основной объект сделки (у дополнительных объектов своего графика нет).
+      if (isPrimaryUnit && relatedDealId) {
+        const paused = await client.query(
+          `UPDATE "PaymentSchedule"
+           SET status = 'PAUSED'::"PaymentStatus", "pausedReason" = 'Расторжение', "pausedAt" = NOW(), "updatedAt" = NOW()
+           WHERE "dealId" = $1 AND status::text IN ('PENDING', 'OVERDUE')
+           RETURNING id`,
+          [relatedDealId]
+        );
+        pausedPaymentsCount = paused.rows.length;
+      }
+
+      // FR-20: сделку (Deal) эта операция не трогает вообще — ни статус, ни другие поля.
+
+      // FR-40: журнал аудита — помещение, связанная сделка на момент операции, инициатор, время.
+      await client.query(
+        `INSERT INTO "AuditLog" ("id", "action", "entityType", "entityId", "managerId", "fieldName", "oldValue", "newValue", "reason", "organizationId", "createdAt")
+         VALUES ($1, 'TERMINATE', 'Unit', $2, $3, 'status', 'SOLD', 'FREE', $4, $5, NOW())`,
+        [
+          crypto.randomUUID(),
+          unitId,
+          initiatorId || 'system',
+          relatedDealId ? `Расторжение договора (сделка на момент операции: ${relatedDealId})` : 'Расторжение договора',
+          organizationId,
+        ]
+      );
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    revalidatePath('/shakhmatka');
+    return { success: true, pausedPaymentsCount };
+  } catch (error: any) {
+    console.error('Terminate unit contract error:', error);
+    return { success: false, error: 'SERVER_ERROR', message: error?.message || 'Ошибка при расторжении договора' };
+  }
+}
 
 // Получить все блоки для выбора при создании
 export async function getBlocksForSelect(organizationId: string) {

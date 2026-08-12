@@ -2,7 +2,7 @@
  
 import React, { useState, useEffect, useMemo } from 'react';
 import styles from './Shakhmatka.module.css';
-import { createDemoProject, getPriceHistory, createUnit, updateUnit, deleteUnit, getBlocksForSelect, getUnitActionHistory, getUnitAssociatedClient, createProjectAction, generateBlockAndUnitsAction, getUnitRooms } from '@/app/actions/units';
+import { createDemoProject, getPriceHistory, createUnit, updateUnit, deleteUnit, getBlocksForSelect, getUnitActionHistory, getUnitAssociatedClient, createProjectAction, generateBlockAndUnitsAction, getUnitRooms, terminateUnitContract } from '@/app/actions/units';
 import { createBooking, releaseBooking, addToWaitingListAction, removeFromWaitingListAction, getWaitingListAction } from '@/app/actions/booking';
 import { getExchangeRate } from '@/app/actions/exchange';
 import { importUnitsFromExcel } from '@/app/actions/import';
@@ -1239,6 +1239,32 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     setLoading(false);
   };
 
+  // Расторжение договора (см. "Расторжение договора.pdf") — только для проданных объектов.
+  // Не трогает сделку, не создаёт денежных операций — только статус юнита и приостановка
+  // ещё не оплаченных платежей графика (реализация — units.ts, terminateUnitContract).
+  const onTerminateContract = async () => {
+    const confirmed = confirm(
+      'Расторгнуть договор по этому помещению? Помещение станет свободным, ещё не оплаченные платежи по графику будут приостановлены. Сделка не изменится, деньги не возвращаются автоматически.'
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    const res = await terminateUnitContract(selectedUnit.id, organizationId, managerId);
+
+    if (res.success) {
+      setSelectedUnit(null);
+      alert(
+        res.pausedPaymentsCount
+          ? `Договор расторгнут. Приостановлено платежей по графику: ${res.pausedPaymentsCount}.`
+          : 'Договор расторгнут.'
+      );
+      router.refresh();
+    } else {
+      alert('Ошибка: ' + (res.message || 'Не удалось расторгнуть договор.'));
+    }
+    setLoading(false);
+  };
+
   const handleAddToQueue = async () => {
     if (!selectedUnit || !wlLeadId) return;
     setWlSubmitting(true);
@@ -2026,6 +2052,18 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                           <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', color: '#047857', lineHeight: '1.4' }}>
                             Объект успешно продан или по нему подписан договор. Смена брони заблокирована.
                           </p>
+                          {selectedUnit.status === 'SOLD' && !readOnly && (
+                            <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '12px' }}>
+                              <button
+                                onClick={onTerminateContract}
+                                disabled={loading}
+                                className={styles.bookBtn}
+                                style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', padding: '6px 14px', width: 'auto', fontSize: '0.8rem' }}
+                              >
+                                {loading ? 'Загрузка...' : 'Расторгнуть договор'}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
