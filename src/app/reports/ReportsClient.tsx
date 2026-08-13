@@ -465,7 +465,7 @@ const STAGE_TRANSLATIONS: Record<string, string> = {
   THIRD_CALL: "Решающий звонок",
   CONSULTATION: "Консультация",
   PRE_RESERVATION: "Предбронь",
-  RESERVATION: "Устная бронь",
+  RESERVATION: "Стандартная бронь",
   MEETING: "Митинг",
   CONTRACT_PREPARATION: "Подготовка договора",
   CONTRACT: "Договор подписан",
@@ -2117,7 +2117,7 @@ export default function ReportsClient({
           const bookingType =
             row.type === "PAID" || row.type === "HARD"
               ? "Платная бронь"
-              : "Устная бронь";
+              : "Стандартная бронь";
           const statusText =
             row.status === "EXPIRED"
               ? "Истекла"
@@ -3884,7 +3884,7 @@ export default function ReportsClient({
                 onChange={(e) => setSelectedBookingType(e.target.value)}
               >
                 <option value="ALL">Все типы</option>
-                <option value="SOFT">Устная бронь</option>
+                <option value="SOFT">Стандартная бронь</option>
                 <option value="HARD">Платная бронь</option>
               </select>
             </div>

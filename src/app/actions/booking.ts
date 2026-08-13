@@ -239,11 +239,15 @@ export async function checkAndReleaseExpiredBookings() {
   }
 }
 
-// Получить список всех лидов для выпадающего списка
+// Список клиентов для выпадающего списка в бронировании (Шахматка) — только уже
+// сконвертированные лиды (клиенты), а не вся таблица Lead: раньше грузили абсолютно
+// все лиды организации (включая необработанные из маркетинга/колл-центра) и фильтровали
+// на клиенте — на организациях с большим потоком лидов это заметно тормозило загрузку страницы.
 export async function getLeadsList(organizationId: string) {
   return await prisma.$queryRaw`
-    SELECT * FROM "Lead" 
-    WHERE "organizationId" = ${organizationId} 
+    SELECT * FROM "Lead"
+    WHERE "organizationId" = ${organizationId}
+      AND (status = 'CONVERTED' OR ("type" IS NOT NULL AND "type" != 'LEAD'))
     ORDER BY "createdAt" DESC
   `;
 }

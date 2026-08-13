@@ -53,9 +53,9 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   // до монтирования в браузере не должен пытаться его показывать (иначе hydration mismatch).
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
-  const clients = useMemo(() => {
-    return leads.filter(l => l.status === 'CONVERTED' || (l.type && l.type !== 'LEAD'));
-  }, [leads]);
+  // getLeadsList теперь сразу отдаёт только клиентов (CONVERTED/не LEAD) — фильтр по всей
+  // таблице лидов организации перенесён на сервер, здесь достаточно использовать leads как есть.
+  const clients = leads;
 
   // Данные и фильтры
   const [projects, setProjects] = useState(initialProjects);
@@ -66,7 +66,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
     { value: 'FREE', label: 'Свободные' },
-    { value: 'SOFT', label: 'Софт бронь' },
+    { value: 'SOFT', label: 'Стандартная бронь' },
     { value: 'HARD', label: 'Хард бронь' },
     { value: 'CONTRACT_SIGNED', label: 'Договор подписан' },
     { value: 'SOLD', label: 'Продано / Оплачено' },
@@ -774,7 +774,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
 
   // Состояния для бронирования (SOFT, HARD, SERVICE)
   const [bookingType, setBookingType] = useState<'SOFT' | 'HARD' | 'SERVICE'>('SOFT');
-  const [softDuration, setSoftDuration] = useState('1'); // hours
+  // Стандартная бронь теперь всегда на фиксированный срок — 2 дня (см. onBook), без выбора длительности.
+  const SOFT_BOOKING_HOURS = 48;
   const [hardDuration, setHardDuration] = useState('14'); // days
   const [customHardDateTime, setCustomHardDateTime] = useState('');
 
@@ -893,7 +894,6 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     setCalcFirstPaymentAmount(Math.round(unit.price * 0.1));
     if (clients.length > 0) setSelectedLeadId(clients[0].id);
     setBookingType('SOFT');
-    setSoftDuration('1');
     setHardDuration('14');
   };
 
@@ -1216,7 +1216,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     setLoading(true);
 
     const duration = bookingType === 'SOFT'
-      ? Number(softDuration)
+      ? SOFT_BOOKING_HOURS
       : (bookingType === 'HARD' && hardDuration !== 'CUSTOM' ? Number(hardDuration) : 0);
 
     const customExpiresAt = bookingType === 'HARD' && hardDuration === 'CUSTOM' ? new Date(customHardDateTime) : undefined;
@@ -1349,8 +1349,8 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const getStatusName = (status: string) => {
     switch (status) {
       case 'FREE': return 'Свободна';
-      case 'SOFT_BOOKED': return 'Софт бронь';
-      case 'RESERVATION_ORAL': return 'Софт бронь';
+      case 'SOFT_BOOKED': return 'Стандартная бронь';
+      case 'RESERVATION_ORAL': return 'Стандартная бронь';
       case 'HARD_BOOKED': return 'Хард бронь';
       case 'RESERVATION_PAID': return 'Хард бронь';
       case 'CONTRACT_SIGNED': return 'Договор подписан';
@@ -1470,7 +1470,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         <div className={styles.statsRow}>
           <div className={styles.statMini}><div className={styles.statNum}>{stats.total}</div><div className={styles.statLabel}>Всего</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#16a34a'}}>{stats.free}</div><div className={styles.statLabel}>Свободно</div></div>
-          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#eab308'}}>{stats.soft}</div><div className={styles.statLabel}>Софт бронь</div></div>
+          <div className={styles.statMini}><div className={styles.statNum} style={{color:'#eab308'}}>{stats.soft}</div><div className={styles.statLabel}>Стандартная бронь</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#ea580c'}}>{stats.hard}</div><div className={styles.statLabel}>Хард бронь</div></div>
           <div className={styles.statMini}><div className={styles.statNum} style={{color:'#b91c1c'}}>{stats.sold}</div><div className={styles.statLabel}>Продано</div></div>
         </div>
@@ -1553,7 +1553,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         {/* Легенда */}
         <div className={styles.legend}>
           <div className={styles.legendItem}><span className={styles.freeBox}></span> Свободна</div>
-          <div className={styles.legendItem}><span className={styles.softBookedBox}></span> Софт бронь</div>
+          <div className={styles.legendItem}><span className={styles.softBookedBox}></span> Стандартная бронь</div>
           <div className={styles.legendItem}><span className={styles.hardBookedBox}></span> Хард бронь</div>
           <div className={styles.legendItem}><span className={styles.contractSignedBox}></span> Договор</div>
           <div className={styles.legendItem}><span className={styles.fullyPaidBox}></span> Продано</div>
@@ -1941,7 +1941,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 className={`${styles.bookingTypeTab} ${bookingType === 'SOFT' ? styles.bookingTypeTabActiveSoft : ''}`} 
                                 onClick={() => setBookingType('SOFT')}
                               >
-                                Софт бронь
+                                Стандартная бронь
                               </button>
                               <button
                                 type="button"
@@ -1963,15 +1963,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                           <div style={{ margin: '12px 0' }}>
                             {bookingType === 'SOFT' && (
                               <>
-                                <span className={styles.bookingLabel}>Срок устной брони</span>
-                                <select 
-                                  value={softDuration} 
-                                  onChange={(e) => setSoftDuration(e.target.value)} 
-                                  className={styles.leadSelect}
-                                >
-                                  <option value="0.5">30 минут</option>
-                                  <option value="1">1 час</option>
-                                </select>
+                                <span className={styles.bookingLabel}>Срок стандартной брони</span>
+                                <div className={styles.leadSelect} style={{ display: 'flex', alignItems: 'center', color: '#475569', fontWeight: 600 }}>
+                                  2 дня
+                                </div>
                               </>
                             )}
 
