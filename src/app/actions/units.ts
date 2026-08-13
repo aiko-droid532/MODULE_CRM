@@ -6,30 +6,9 @@ import { logAction } from '@/lib/logger';
 import { requireRole, canManageUnits, canManagePrices } from '@/lib/roles';
 
 // Получить все проекты организации
-//
-// Раньше на КАЖДУЮ квартиру выполнялось 5 коррелированных подзапросов к Booking/Deal
-// (bookingExpiresAt, associatedLeadId x2, associatedLeadName x2) — классическая проблема
-// N+1 внутри одного SQL-запроса. При нескольких тысячах квартир (несколько ЖК/корпусов)
-// это давало тысячи мини-запросов на один заход в Шахматку и было главной причиной
-// долгой загрузки. Теперь активные брони и активные сделки по организации собираются
-// ОДИН раз в CTE и подключаются к квартирам через LEFT JOIN — вместо N подзапросов
-// получаем один hash-join независимо от количества квартир.
 export async function getProjects(organizationId: string) {
   noStore();
   const projects: any[] = await prisma.$queryRaw`
-    WITH active_booking AS (
-      SELECT bk."unitId", bk."expiresAt", bk."leadId", ld.name AS "leadName"
-      FROM "Booking" bk
-      LEFT JOIN "Lead" ld ON ld.id = bk."leadId"
-      WHERE bk."organizationId" = ${organizationId} AND bk.status = 'ACTIVE'
-    ),
-    active_deal AS (
-      SELECT DISTINCT ON (dl."unitId") dl."unitId", dl."leadId", ld.name AS "leadName"
-      FROM "Deal" dl
-      LEFT JOIN "Lead" ld ON ld.id = dl."leadId"
-      WHERE dl."organizationId" = ${organizationId} AND dl.status::text NOT IN ('FAILED', 'CANCELLED')
-      ORDER BY dl."unitId", dl."createdAt" DESC
-    )
     SELECT
       p.*,
       COALESCE(
@@ -67,17 +46,49 @@ export async function getProjects(organizationId: string) {
                     'registeredInPublicRegistry', u."registeredInPublicRegistry",
                     'availableForSale', u."availableForSale",
                     'pricePerSqmVAT', u."pricePerSqmVAT",
-                    'bookingExpiresAt', ab."expiresAt",
-                    'associatedLeadId', COALESCE(ab."leadId", ad."leadId"),
-                    'associatedLeadName', COALESCE(ab."leadName", ad."leadName")
+                    'bookingExpiresAt', (
+                      SELECT bk."expiresAt"
+                      FROM "Booking" bk
+                      WHERE bk."unitId" = u.id AND bk.status = 'ACTIVE'
+                      LIMIT 1
+                    ),
+                    'associatedLeadId', COALESCE(
+                      (
+                        SELECT bk."leadId"
+                        FROM "Booking" bk
+                        WHERE bk."unitId" = u.id AND bk.status = 'ACTIVE'
+                        LIMIT 1
+                      ),
+                      (
+                        SELECT dl."leadId"
+                        FROM "Deal" dl
+                        WHERE dl."unitId" = u.id AND dl.status::text NOT IN ('FAILED', 'CANCELLED')
+                        ORDER BY dl."createdAt" DESC
+                        LIMIT 1
+                      )
+                    ),
+                    'associatedLeadName', COALESCE(
+                      (
+                        SELECT ld.name
+                        FROM "Booking" bk
+                        JOIN "Lead" ld ON bk."leadId" = ld.id
+                        WHERE bk."unitId" = u.id AND bk.status = 'ACTIVE'
+                        LIMIT 1
+                      ),
+                      (
+                        SELECT ld.name
+                        FROM "Deal" dl
+                        JOIN "Lead" ld ON dl."leadId" = ld.id
+                        WHERE dl."unitId" = u.id AND dl.status::text NOT IN ('FAILED', 'CANCELLED')
+                        ORDER BY dl."createdAt" DESC
+                        LIMIT 1
+                      )
+                    )
                   ) ORDER BY u.floor DESC, u.number ASC
                 ),
                 '[]'::json
               )
-              FROM "Unit" u
-              LEFT JOIN active_booking ab ON ab."unitId" = u.id
-              LEFT JOIN active_deal ad ON ad."unitId" = u.id
-              WHERE u."blockId" = b.id
+              FROM "Unit" u WHERE u."blockId" = b.id
             )
           ) ORDER BY b.number ASC
         ) FILTER (WHERE b.id IS NOT NULL), '[]'::json
