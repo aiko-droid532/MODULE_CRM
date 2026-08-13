@@ -526,6 +526,9 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const calcDiscountAllowed = role === 'manager' ? true : canApplyDiscountPercent(role, calcCombinedDiscountPercent);
   const calcAutoDates = computeAutoScheduleDates(calcFirstPaymentDate, calcEffectiveDeliveryDate);
   const calcMonthsCount = Math.max(1, calcPeriodsCount(calcAutoDates.scheduleStartDate, calcAutoDates.scheduleEndDate, calcPeriodicity));
+  // Стандартный тип выбран, но дата первого взноса ещё не указана — поля % показывают
+  // 10/20/70 как подсказку (placeholder), а не реальное значение, до ввода даты.
+  const calcShowStandardPlaceholder = calcScheduleType === 'STANDARD' && !calcFirstPaymentDate;
 
   function markCustom() {
     setCalcScheduleType('CUSTOM');
@@ -659,6 +662,26 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     setCalcLastPaymentAmount(lastPaymentAmount);
     setCalcAutoRow('last');
     setCalcScheduleType('STANDARD');
+  }
+
+  // Дата первого взноса: при Стандартном типе — сразу подтягивает пресет 10/20/70,
+  // не переключая тип на Нестандартный (переключение — только если менеджер вручную
+  // тронет суммы/проценты, см. markCustom в handleFirst/Recurring/LastAmountChange).
+  function handleFirstPaymentDateChange(dateValue: string) {
+    setCalcFirstPaymentDate(dateValue);
+    if (calcScheduleType === 'STANDARD') {
+      if (dateValue && calcEffectiveDeliveryDate) {
+        const { firstPaymentAmount, recurringAmount, lastPaymentAmount } = applyStandardPreset(
+          calcLiveFinalPrice, dateValue, calcEffectiveDeliveryDate, calcPeriodicity
+        );
+        setCalcFirstPaymentAmount(firstPaymentAmount);
+        setCalcRecurringAmount(recurringAmount);
+        setCalcLastPaymentAmount(lastPaymentAmount);
+        setCalcAutoRow('last');
+      }
+    } else {
+      markCustom();
+    }
   }
 
   async function handleSaveInstallmentPlan() {
@@ -2274,7 +2297,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                             <div className={styles.formGroup}>
                               <label>Тип</label>
                               <select className={styles.input} value={calcScheduleType} onChange={e => setCalcScheduleType(e.target.value as any)}>
-                                <option value="STANDARD">Стандартный (10% / 20% / остаток)</option>
+                                <option value="STANDARD">Стандартный (10/20/70)</option>
                                 <option value="CUSTOM">Нестандартный</option>
                               </select>
                             </div>
@@ -2361,7 +2384,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                             <strong style={{ fontSize: '0.85rem', color: '#475569' }}>График платежей</strong>
                             {calcScheduleType === 'STANDARD' && (
                               <button type="button" onClick={handleApplyStandardPreset} style={{ padding: '6px 10px', fontSize: '0.75rem', background: '#f1f5f9', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, color: '#475569' }}>
-                                Применить пресет 10% / 20% / остаток
+                                Применить пресет 10/20/70
                               </button>
                             )}
                           </div>
@@ -2374,9 +2397,9 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                             {/* Строка 1: Первый взнос */}
                             <div className={styles.installmentGridRow}>
                               <div className={styles.installmentGridLabel}>Первый взнос</div>
-                              <input type="date" className={styles.input} value={calcFirstPaymentDate} onChange={e => { setCalcFirstPaymentDate(e.target.value); markCustom(); }} />
+                              <input type="date" className={styles.input} value={calcFirstPaymentDate} onChange={e => handleFirstPaymentDateChange(e.target.value)} />
                               <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(derivedFirstAmount, !calcFirstPaymentDate)} onChange={e => handleFirstAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(calcFirstPercent, !calcFirstPaymentDate)} onChange={e => handleFirstPercentChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'first' ? styles.inputAuto : ''} ${calcAutoRow === 'first' && derivedFirstAmount < 0 ? styles.inputNegative : ''} ${calcShowStandardPlaceholder ? styles.presetPlaceholder : ''}`} value={calcShowStandardPlaceholder ? '' : displayNum(calcFirstPercent, !calcFirstPaymentDate)} placeholder={calcShowStandardPlaceholder ? '10' : undefined} onChange={e => handleFirstPercentChange(Number(e.target.value))} />
                             </div>
 
                             {/* Строка 2: Периодический платёж */}
@@ -2393,7 +2416,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 {calcAutoDates.scheduleEndDate ? formatDateRu(calcAutoDates.scheduleEndDate) : '--.--.--'}
                               </div>
                               <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(derivedRecurringAmount, !calcFirstPaymentDate)} onChange={e => handleRecurringAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(calcRecurringPercent, !calcFirstPaymentDate)} onChange={e => handleRecurringPercentChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'recurring' ? styles.inputAuto : ''} ${calcAutoRow === 'recurring' && derivedRecurringAmount < 0 ? styles.inputNegative : ''} ${calcShowStandardPlaceholder ? styles.presetPlaceholder : ''}`} value={calcShowStandardPlaceholder ? '' : displayNum(calcRecurringPercent, !calcFirstPaymentDate)} placeholder={calcShowStandardPlaceholder ? '20' : undefined} onChange={e => handleRecurringPercentChange(Number(e.target.value))} />
                             </div>
 
                             {/* Строка 3: Остаток */}
@@ -2401,7 +2424,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                               <div className={styles.installmentGridLabel}>Остаток (финальный платёж)</div>
                               <div className={styles.paramValue} style={{ display: 'flex', alignItems: 'center', color: calcEffectiveDeliveryDate ? '#1e293b' : '#94a3b8', fontSize: '0.8rem' }}>{calcEffectiveDeliveryDate ? formatDateRu(calcEffectiveDeliveryDate) : '--.--.--'}</div>
                               <input type="number" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(derivedLastAmount, !calcFirstPaymentDate)} onChange={e => handleLastAmountChange(Number(e.target.value))} />
-                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''}`} value={displayNum(calcLastPercent, !calcFirstPaymentDate)} onChange={e => handleLastPercentChange(Number(e.target.value))} />
+                              <input type="number" step="0.1" disabled={!calcFirstPaymentDate} className={`${styles.input} ${calcAutoRow === 'last' ? styles.inputAuto : ''} ${calcAutoRow === 'last' && derivedLastAmount < 0 ? styles.inputNegative : ''} ${calcShowStandardPlaceholder ? styles.presetPlaceholder : ''}`} value={calcShowStandardPlaceholder ? '' : displayNum(calcLastPercent, !calcFirstPaymentDate)} placeholder={calcShowStandardPlaceholder ? '70' : undefined} onChange={e => handleLastPercentChange(Number(e.target.value))} />
                             </div>
                           </div>
                           <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '6px' }}>
