@@ -497,7 +497,17 @@ const handleCardClick = async (deal: any) => {
   setMortgageComment(deal.mortgageComment || '');
   // Сразу гасим данные предыдущей карточки, чтобы не мелькнула чужая задолженность/
   // клиенты/объекты пока грузятся свежие — они всё равно сейчас относятся к другой сделке.
-  setDealClients([]);
+    // ✅ Сразу показываем основного клиента
+  const initialClients = deal.lead ? [{
+    id: `deal-primary-${deal.id}`,
+    leadId: deal.lead.id,
+    isPrimary: true,
+    name: deal.lead.name,
+    phone: deal.lead.phone,
+    email: deal.lead.email,
+    iin: deal.lead.iin,
+  }] : [];
+  setDealClients(initialClients);
   setDealUnits([]);
   setDealGifts([]);
   setDealHistory([]);

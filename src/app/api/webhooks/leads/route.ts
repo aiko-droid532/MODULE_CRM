@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 // ================================================================
 
 export async function POST(req: NextRequest) {
-  const orgId = process.env.DEFAULT_ORGANIZATION_ID || 'default';
+  const orgId = process.env.DEFAULT_ORGANIZATION_ID || '';
   let rawBody: any = null;
 
   try {
@@ -136,7 +136,7 @@ export async function GET(req: NextRequest) {
   if (apiKey !== (process.env.INTEGRATION_API_KEY || 'pb-secret-token')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const orgId = process.env.DEFAULT_ORGANIZATION_ID || 'default';
+  const orgId = process.env.DEFAULT_ORGANIZATION_ID || '';
   const stats: any[] = await prisma.$queryRaw`
     SELECT status, COUNT(*) as count FROM "WebhookLog"
     WHERE source='parkboulevard.ge' AND "organizationId"=${orgId} GROUP BY status
