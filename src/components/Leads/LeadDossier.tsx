@@ -354,6 +354,9 @@ export default function LeadDossier({
   const calcDiscountAllowed = role === 'manager' ? true : canApplyDiscountPercent(role, calcCombinedDiscountPercent);
   const calcAutoDates = computeAutoScheduleDates(calcFirstPaymentDate, calcEffectiveDeliveryDate);
   const calcMonthsCount = Math.max(1, calcPeriodsCount(calcAutoDates.scheduleStartDate, calcAutoDates.scheduleEndDate, calcPeriodicity));
+  // Стандартный тип выбран, но дата первого взноса ещё не указана — поля % показывают
+  // 10/20/70 как подсказку (placeholder), а не реальное значение, до ввода даты.
+  const calcShowStandardPlaceholder = calcScheduleType === "STANDARD" && !calcFirstPaymentDate;
 
   function markCustom() {
     setCalcScheduleType("CUSTOM");
@@ -430,6 +433,26 @@ export default function LeadDossier({
     setCalcLastPaymentAmount(lastPaymentAmount);
     setCalcAutoRow("last");
     setCalcScheduleType("STANDARD");
+  }
+
+  // Дата первого взноса: при Стандартном типе — сразу подтягивает пресет 10/20/70,
+  // не переключая тип на Нестандартный (переключение — только если менеджер вручную
+  // тронет суммы/проценты, см. markCustom в handleFirst/Recurring/LastAmountChange).
+  function handleFirstPaymentDateChange(dateValue: string) {
+    setCalcFirstPaymentDate(dateValue);
+    if (calcScheduleType === "STANDARD") {
+      if (dateValue && calcEffectiveDeliveryDate) {
+        const { firstPaymentAmount, recurringAmount, lastPaymentAmount } = applyStandardPreset(
+          calcLiveFinalPrice, dateValue, calcEffectiveDeliveryDate, calcPeriodicity
+        );
+        setCalcFirstPaymentAmount(firstPaymentAmount);
+        setCalcRecurringAmount(recurringAmount);
+        setCalcLastPaymentAmount(lastPaymentAmount);
+        setCalcAutoRow("last");
+      }
+    } else {
+      markCustom();
+    }
   }
 
   const [filters, setFilters] = useState({
@@ -1619,7 +1642,7 @@ export default function LeadDossier({
                           <div className={styles.field}>
                             <label> Тип рассрочки</label>
                             <select className={styles.modernSelect} value={calcScheduleType} onChange={(e) => setCalcScheduleType(e.target.value as any)}>
-                              <option value="STANDARD">Стандартный (10% / 20% / остаток)</option>
+                              <option value="STANDARD">Стандартный (10/20/70)</option>
                               <option value="CUSTOM">Нестандартный</option>
                             </select>
                           </div>
@@ -1670,7 +1693,7 @@ export default function LeadDossier({
 
                           {calcScheduleType === "STANDARD" && (
                             <button type="button" onClick={handleApplyStandardPreset} style={{ margin: "6px 0", padding: "6px 10px", fontSize: "0.72rem", background: "#f1f5f9", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 700, color: "#475569" }}>
-                              Применить пресет 10% / 20% / остаток
+                              Применить пресет 10/20/70
                             </button>
                           )}
 
@@ -1678,7 +1701,7 @@ export default function LeadDossier({
                             <div className={styles.installmentCompactCard}>
                               <div className={styles.installmentCompactCardHeader}>
                                 <span>Первый взнос</span>
-                                <input type="date" className={styles.installmentCompactDateInput} value={calcFirstPaymentDate} onChange={(e) => { setCalcFirstPaymentDate(e.target.value); markCustom(); }} />
+                                <input type="date" className={styles.installmentCompactDateInput} value={calcFirstPaymentDate} onChange={(e) => handleFirstPaymentDateChange(e.target.value)} />
                               </div>
                               <div className={styles.installmentCompactCardBody}>
                                 <div className={styles.installmentCompactFieldGroup}>
@@ -1687,7 +1710,7 @@ export default function LeadDossier({
                                 </div>
                                 <div className={styles.installmentCompactFieldGroup}>
                                   <span className={styles.installmentCompactFieldLabel}>%</span>
-                                  <input type="number" step="0.1" className={`${styles.modernInput} ${calcAutoRow === "first" ? styles.inputAutoLd : ""}`} value={calcFirstPercent} onChange={(e) => handleFirstPercentChange(Number(e.target.value))} />
+                                  <input type="number" step="0.1" className={`${styles.modernInput} ${calcAutoRow === "first" ? styles.inputAutoLd : ""} ${calcShowStandardPlaceholder ? styles.presetPlaceholder : ""}`} value={calcShowStandardPlaceholder ? "" : calcFirstPercent} placeholder={calcShowStandardPlaceholder ? "10" : undefined} onChange={(e) => handleFirstPercentChange(Number(e.target.value))} />
                                 </div>
                               </div>
                             </div>
@@ -1708,7 +1731,7 @@ export default function LeadDossier({
                                 </div>
                                 <div className={styles.installmentCompactFieldGroup}>
                                   <span className={styles.installmentCompactFieldLabel}>%</span>
-                                  <input type="number" step="0.1" className={`${styles.modernInput} ${calcAutoRow === "recurring" ? styles.inputAutoLd : ""}`} value={calcRecurringPercent} onChange={(e) => handleRecurringPercentChange(Number(e.target.value))} />
+                                  <input type="number" step="0.1" className={`${styles.modernInput} ${calcAutoRow === "recurring" ? styles.inputAutoLd : ""} ${calcShowStandardPlaceholder ? styles.presetPlaceholder : ""}`} value={calcShowStandardPlaceholder ? "" : calcRecurringPercent} placeholder={calcShowStandardPlaceholder ? "20" : undefined} onChange={(e) => handleRecurringPercentChange(Number(e.target.value))} />
                                 </div>
                               </div>
                             </div>
@@ -1727,7 +1750,7 @@ export default function LeadDossier({
                                 </div>
                                 <div className={styles.installmentCompactFieldGroup}>
                                   <span className={styles.installmentCompactFieldLabel}>%</span>
-                                  <input type="number" step="0.1" className={`${styles.modernInput} ${calcAutoRow === "last" ? styles.inputAutoLd : ""}`} value={calcLastPercent} onChange={(e) => handleLastPercentChange(Number(e.target.value))} />
+                                  <input type="number" step="0.1" className={`${styles.modernInput} ${calcAutoRow === "last" ? styles.inputAutoLd : ""} ${calcShowStandardPlaceholder ? styles.presetPlaceholder : ""}`} value={calcShowStandardPlaceholder ? "" : calcLastPercent} placeholder={calcShowStandardPlaceholder ? "70" : undefined} onChange={(e) => handleLastPercentChange(Number(e.target.value))} />
                                 </div>
                               </div>
                             </div>

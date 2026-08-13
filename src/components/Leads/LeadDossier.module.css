@@ -1122,3 +1122,11 @@
   color: #1e40af !important;
   font-weight: 700;
 }
+
+/* Поле % графика при выбранном Стандартном типе, пока не указана дата первого взноса —
+   показывает 10/20/70 подсказкой (placeholder), а не реальным значением. */
+.presetPlaceholder::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+  opacity: 1;
+}
