@@ -101,6 +101,22 @@ export async function getProjects(organizationId: string) {
   return projects;
 }
 
+// Облегчённая версия для мест, где нужен только список ЖК (id/название) — например,
+// выпадающий список "Существующий ЖК" в Конструкторе. Раньше конструктор дёргал
+// getProjects() и вместе с ним — тот же тяжёлый обход всех квартир организации с
+// 5 подзапросами к Booking/Deal на каждую (см. getProjects), хотя использовал из
+// результата только id/name. Из-за этого страница конструктора открывалась так же
+// долго, как сама Шахматка, хотя ей эти данные вообще не нужны.
+export async function getProjectsLite(organizationId: string) {
+  noStore();
+  return await prisma.$queryRaw`
+    SELECT id, name, "nameRu"
+    FROM "Project"
+    WHERE "organizationId" = ${organizationId}
+    ORDER BY name ASC
+  `;
+}
+
 // Создать тестовый жилой комплекс для проверки
 export async function createDemoProject(organizationId: string) {
   try {

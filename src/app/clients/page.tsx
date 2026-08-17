@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import { getLeads } from '@/app/actions/leads';
-import { getProjects } from '@/app/actions/units';
+import { getProjectsLite } from '@/app/actions/units';
 import ClientManagementClient from './ClientManagementClient';
 import { extractRole } from '@/lib/roles';
 
@@ -30,7 +30,7 @@ export default async function ClientsPage() {
 
   const [leads, projects] = await Promise.all([
     getLeads(organizationId),
-    getProjects(organizationId)
+    getProjectsLite(organizationId)
   ]);
 
   return (

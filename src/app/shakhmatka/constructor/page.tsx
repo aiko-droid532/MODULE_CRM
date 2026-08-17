@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
-import { getProjects } from '@/app/actions/units';
+import { getProjectsLite } from '@/app/actions/units';
 import ConstructorClient from './ConstructorClient';
 
 export default async function ConstructorPage({
@@ -26,7 +26,7 @@ export default async function ConstructorPage({
     }
   }
 
-  const projects = await getProjects(organizationId);
+  const projects = await getProjectsLite(organizationId);
 
   return (
     <ConstructorClient
