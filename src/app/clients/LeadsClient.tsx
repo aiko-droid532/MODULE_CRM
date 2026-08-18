@@ -87,7 +87,10 @@ export default function LeadsClient({ initialLeads, organizationId }: LeadsClien
           </thead>
           <tbody>
             {filteredLeads.map((client) => (
-              <tr key={client.id} onClick={() => setSelectedLead(client)}>
+              <tr key={client.id} onClick={async () => {
+                const full = await getLeadById(client.id);
+                setSelectedLead(full || client);
+              }}>
                 <td>
                   <span className={styles.clientName}>{client.name}</span>
                   <span className={styles.clientPhone}>{client.phone}</span>
@@ -107,7 +110,11 @@ export default function LeadsClient({ initialLeads, organizationId }: LeadsClien
                   )}
                 </td>
                 <td style={{ textAlign: 'right' }}>
-                  <button className={styles.actionBtn} onClick={() => setSelectedLead(client)}>Открыть досье</button>
+                  <button className={styles.actionBtn} onClick={async (e) => {
+                    e.stopPropagation();
+                    const full = await getLeadById(client.id);
+                    setSelectedLead(full || client);
+                  }}>Открыть досье</button>
                 </td>
               </tr>
             ))}

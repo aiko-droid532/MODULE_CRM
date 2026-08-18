@@ -52,6 +52,7 @@ const STATUS_COLORS: Record<string, string> = {
   RESERVATION_ORAL: '#f59e0b',
   RESERVATION_PAID: '#f97316',
   SERVICE:          '#6b7280',
+  NFS:              '#94a3b8',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -60,6 +61,7 @@ const STATUS_LABELS: Record<string, string> = {
   RESERVATION_ORAL: 'Устная брон.',
   RESERVATION_PAID: 'Оплачена брон.',
   SERVICE:          'Сервис',
+  NFS:              'Не для продажи',
 };
 
 // Расширенные бейджи (из второго + сохранение обратной совместимости)

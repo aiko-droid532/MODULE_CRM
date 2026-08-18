@@ -8,105 +8,120 @@ import { requireRole, canManageUnits, canManagePrices } from '@/lib/roles';
 // Получить все проекты организации
 export async function getProjects(organizationId: string) {
   noStore();
-  const projects: any[] = await prisma.$queryRaw`
-    SELECT
-      p.*,
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'id', b.id,
-            'number', b.number,
-            'projectId', b."projectId",
-            'organizationId', b."organizationId",
-            'units', (
-              SELECT COALESCE(
-                json_agg(
-                  json_build_object(
-                    'id', u.id,
-                    'number', u.number,
-                    'floor', u.floor,
-                    'area', u.area,
-                    'price', u.price,
-                    'status', u.status,
-                    'blockId', u."blockId",
-                    'organizationId', u."organizationId",
-                    'rooms', u.rooms,
-                    'type', u.type,
-                    'livingArea', u."livingArea",
-                    'viewType', u."viewType",
-                    'version', u.version,
-                    'isVip', u."isVip",
-                    'thinkingFlag', u."thinkingFlag",
-                    'entrance', u."entrance",
-                    'balconyArea', u."balconyArea",
-                    'contractNumber', u."contractNumber",
-                    'deliveryYear', u."deliveryYear",
-                    'deliveryMonth', u."deliveryMonth",
-                    'deliveryDate', u."deliveryDate",
-                    'registeredInPublicRegistry', u."registeredInPublicRegistry",
-                    'availableForSale', u."availableForSale",
-                    'pricePerSqmVAT', u."pricePerSqmVAT",
-                    'bookingExpiresAt', (
-                      SELECT bk."expiresAt"
-                      FROM "Booking" bk
-                      WHERE bk."unitId" = u.id AND bk.status = 'ACTIVE'
-                      LIMIT 1
-                    ),
-                    'associatedLeadId', COALESCE(
-                      (
-                        SELECT bk."leadId"
-                        FROM "Booking" bk
-                        WHERE bk."unitId" = u.id AND bk.status = 'ACTIVE'
-                        LIMIT 1
-                      ),
-                      (
-                        SELECT dl."leadId"
-                        FROM "Deal" dl
-                        WHERE dl."unitId" = u.id AND dl.status::text NOT IN ('FAILED', 'CANCELLED')
-                        ORDER BY dl."createdAt" DESC
-                        LIMIT 1
-                      )
-                    ),
-                    'associatedLeadName', COALESCE(
-                      (
-                        SELECT ld.name
-                        FROM "Booking" bk
-                        JOIN "Lead" ld ON bk."leadId" = ld.id
-                        WHERE bk."unitId" = u.id AND bk.status = 'ACTIVE'
-                        LIMIT 1
-                      ),
-                      (
-                        SELECT ld.name
-                        FROM "Deal" dl
-                        JOIN "Lead" ld ON dl."leadId" = ld.id
-                        WHERE dl."unitId" = u.id AND dl.status::text NOT IN ('FAILED', 'CANCELLED')
-                        ORDER BY dl."createdAt" DESC
-                        LIMIT 1
-                      )
-                    )
-                  ) ORDER BY u.floor DESC, u.number ASC
-                ),
-                '[]'::json
-              )
-              FROM "Unit" u WHERE u."blockId" = b.id
-            )
-          ) ORDER BY b.number ASC
-        ) FILTER (WHERE b.id IS NOT NULL), '[]'::json
-      ) as blocks
-    FROM "Project" p
-    LEFT JOIN "Block" b ON b."projectId" = p.id
-    WHERE p."organizationId" = ${organizationId}
-    GROUP BY p.id
-  `;
-  return projects;
+  
+  // Выгружаем проекты, блоки, квартиры, активные бронирования и активные сделки
+  // параллельно, используя преимущества пула соединений БД.
+  const [projects, blocks, units, bookings, deals] = await Promise.all([
+    prisma.$queryRaw`
+      SELECT * FROM "Project" WHERE "organizationId" = ${organizationId}
+    ` as Promise<any[]>,
+    prisma.$queryRaw`
+      SELECT * FROM "Block" WHERE "organizationId" = ${organizationId}
+    ` as Promise<any[]>,
+    prisma.$queryRaw`
+      SELECT * FROM "Unit" WHERE "organizationId" = ${organizationId}
+    ` as Promise<any[]>,
+    prisma.$queryRaw`
+      SELECT bk."unitId", bk."expiresAt", bk."leadId", ld.name as "leadName"
+      FROM "Booking" bk
+      JOIN "Lead" ld ON bk."leadId" = ld.id
+      WHERE bk.status = 'ACTIVE' AND bk."organizationId" = ${organizationId}
+    ` as Promise<any[]>,
+    prisma.$queryRaw`
+      SELECT DISTINCT ON (d."unitId") 
+        d."unitId", d."leadId", ld.name as "leadName"
+      FROM "Deal" d
+      JOIN "Lead" ld ON d."leadId" = ld.id
+      WHERE d.status::text NOT IN ('FAILED', 'CANCELLED') AND d."organizationId" = ${organizationId}
+      ORDER BY d."unitId", d."createdAt" DESC
+    ` as Promise<any[]>
+  ]);
+
+  if (projects.length === 0) return [];
+
+  // Создаем хэш-карты для быстрого поиска бронирований и сделок по unitId за O(1)
+  const bookingsByUnitId = new Map();
+  for (const b of bookings) {
+    bookingsByUnitId.set(b.unitId, b);
+  }
+
+  const dealsByUnitId = new Map();
+  for (const d of deals) {
+    dealsByUnitId.set(d.unitId, d);
+  }
+
+  // Группируем квартиры по blockId
+  const unitsByBlockId = new Map();
+  for (const u of units) {
+    const activeBooking = bookingsByUnitId.get(u.id);
+    const activeDeal = dealsByUnitId.get(u.id);
+
+    const bookingExpiresAt = activeBooking ? activeBooking.expiresAt : null;
+    const associatedLeadId = activeBooking ? activeBooking.leadId : (activeDeal ? activeDeal.leadId : null);
+    const associatedLeadName = activeBooking ? activeBooking.leadName : (activeDeal ? activeDeal.leadName : null);
+
+    const unitObj = {
+      ...u,
+      bookingExpiresAt,
+      associatedLeadId,
+      associatedLeadName
+    };
+
+    const list = unitsByBlockId.get(u.blockId) || [];
+    list.push(unitObj);
+    unitsByBlockId.set(u.blockId, list);
+  }
+
+  // Сортируем квартиры в каждом блоке по floor DESC, number ASC (алфавитная сортировка)
+  for (const [blockId, list] of unitsByBlockId.entries()) {
+    list.sort((a: any, b: any) => {
+      if (b.floor !== a.floor) {
+        return b.floor - a.floor;
+      }
+      return a.number < b.number ? -1 : a.number > b.number ? 1 : 0;
+    });
+  }
+
+  // Группируем блоки по projectId
+  const blocksByProjectId = new Map();
+  for (const b of blocks) {
+    const blockUnits = unitsByBlockId.get(b.id) || [];
+    const blockObj = {
+      ...b,
+      units: blockUnits
+    };
+    const list = blocksByProjectId.get(b.projectId) || [];
+    list.push(blockObj);
+    blocksByProjectId.set(b.projectId, list);
+  }
+
+  // Сортируем блоки по buildingNumber (числовая сортировка, NULLS FIRST) и по number ASC
+  for (const [projectId, list] of blocksByProjectId.entries()) {
+    list.sort((a: any, b: any) => {
+      const aVal = a.buildingNumber && a.buildingNumber.trim() !== '' ? parseInt(a.buildingNumber, 10) : null;
+      const bVal = b.buildingNumber && b.buildingNumber.trim() !== '' ? parseInt(b.buildingNumber, 10) : null;
+
+      if (aVal === null && bVal === null) {
+        return a.number < b.number ? -1 : a.number > b.number ? 1 : 0;
+      }
+      if (aVal === null) return -1;
+      if (bVal === null) return 1;
+
+      if (aVal !== bVal) {
+        return aVal - bVal;
+      }
+
+      return a.number < b.number ? -1 : a.number > b.number ? 1 : 0;
+    });
+  }
+
+  // Формируем финальный результат
+  return projects.map(p => ({
+    ...p,
+    blocks: blocksByProjectId.get(p.id) || []
+  }));
 }
 
-// Облегчённая версия для мест, где нужен только список ЖК (id/название) — например,
-// выпадающий список "Существующий ЖК" в Конструкторе. Раньше конструктор дёргал
-// getProjects() и вместе с ним — тот же тяжёлый обход всех квартир организации с
-// 5 подзапросами к Booking/Deal на каждую (см. getProjects), хотя использовал из
-// результата только id/name. Из-за этого страница конструктора открывалась так же
-// долго, как сама Шахматка, хотя ей эти данные вообще не нужны.
 export async function getProjectsLite(organizationId: string) {
   noStore();
   return await prisma.$queryRaw`
