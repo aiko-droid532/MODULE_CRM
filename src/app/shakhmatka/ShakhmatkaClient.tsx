@@ -61,6 +61,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const [projects, setProjects] = useState(initialProjects);
   const [activeProjectId, setActiveProjectId] = useState(projects[0]?.id || null);
   const [activeBlockId, setActiveBlockId] = useState(projects[0]?.blocks?.[0]?.id || null);
+  // Двухуровневый выбор (здание -> корпус) — только для ЖК, где у блоков есть buildingNumber
+  // (сейчас это Park Boulevard: несколько зданий, в каждом свои корпуса A/B/C). У проектов
+  // без этого поля (старые ЖК) остаётся прежний плоский список корпусов.
+  const [activeBuildingNumber, setActiveBuildingNumber] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -71,6 +75,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     { value: 'CONTRACT_SIGNED', label: 'Договор подписан' },
     { value: 'SOLD', label: 'Продано / Оплачено' },
     { value: 'SERVICE', label: 'Служебное резервирование' },
+    { value: 'NFS', label: 'Не для продажи (кладовка/офис)' },
   ];
   function toggleStatusFilterOption(value: string) {
     setStatusFilter(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
@@ -1341,6 +1346,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
       case 'FULLY_PAID': return styles.fullyPaid;
       case 'SOLD': return styles.fullyPaid;
       case 'SERVICE': return styles.service;
+      case 'NFS': return styles.excluded;
       case 'EXCLUDED': return styles.excluded;
       default: return styles.free;
     }
@@ -1358,13 +1364,31 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
       case 'FULLY_PAID': return 'Полная оплата';
       case 'SOLD': return 'Продано';
       case 'SERVICE': return 'Служебная';
+      case 'NFS': return 'Не для продажи';
       case 'EXCLUDED': return 'Исключена';
       default: return 'Свободна';
     }
   };
 
   const currentProject = projects.find(p => p.id === activeProjectId);
-  const currentBlock = currentProject?.blocks?.find((b: any) => b.id === activeBlockId);
+
+  const projectHasBuildings = !!currentProject?.blocks?.some((b: any) => b.buildingNumber);
+  const buildingNumbers: string[] = projectHasBuildings
+    ? (Array.from(new Set(currentProject!.blocks.map((b: any) => b.buildingNumber).filter(Boolean))) as string[])
+        .sort((a: string, b: string) => Number(a) - Number(b))
+    : [];
+  // Если выбранного здания больше нет в текущем ЖК (сменили ЖК/данные обновились) — берём первое.
+  const effectiveBuildingNumber = projectHasBuildings
+    ? (activeBuildingNumber && buildingNumbers.includes(activeBuildingNumber) ? activeBuildingNumber : buildingNumbers[0])
+    : null;
+  const visibleBlocks = projectHasBuildings
+    ? (currentProject?.blocks || [])
+        .filter((b: any) => b.buildingNumber === effectiveBuildingNumber)
+        .sort((a: any, b: any) => String(a.number).localeCompare(String(b.number)))
+    : (currentProject?.blocks || []);
+  const effectiveBlockId = visibleBlocks.some((b: any) => b.id === activeBlockId) ? activeBlockId : visibleBlocks[0]?.id;
+
+  const currentBlock = currentProject?.blocks?.find((b: any) => b.id === effectiveBlockId);
 
   // Сборка этажей и квартир (Замечание аналитика - группировка по подъездам)
   const unitsByFloor: Record<number, any[]> = {};
@@ -1476,18 +1500,61 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
         </div>
 
         {/* Фильтры */}
-        <div className={styles.filterBar}>
-          <div className={styles.blockTabs}>
-            {currentProject?.blocks?.map((block: any) => (
-              <button key={block.id} className={activeBlockId === block.id ? styles.activeTab : ''} onClick={() => setActiveBlockId(block.id)}>{block.number}</button>
-            ))}
-          </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className={styles.filterBar} style={{ flexDirection: projectHasBuildings ? 'column' : 'row', alignItems: projectHasBuildings ? 'stretch' : 'center' }}>
+          {projectHasBuildings ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Уровень 1: здание */}
+              <div className={styles.blockTabs}>
+                {buildingNumbers.map((bn: string) => (
+                  <button
+                    key={bn}
+                    className={effectiveBuildingNumber === bn ? styles.activeTab : ''}
+                    onClick={() => {
+                      setActiveBuildingNumber(bn);
+                      const firstBlock = (currentProject?.blocks || []).find((b: any) => b.buildingNumber === bn);
+                      if (firstBlock) setActiveBlockId(firstBlock.id);
+                    }}
+                    title={`Здание ${bn}`}
+                  >
+                    {bn}
+                  </button>
+                ))}
+              </div>
+              {/* Уровень 2: корпус (A, B, C по порядку) внутри выбранного здания */}
+              <div className={styles.blockTabs}>
+                {visibleBlocks.map((block: any) => (
+                  <button
+                    key={block.id}
+                    className={effectiveBlockId === block.id ? styles.activeTab : ''}
+                    onClick={() => setActiveBlockId(block.id)}
+                    title={`Корпус ${block.number}`}
+                  >
+                    {block.number}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className={styles.blockTabs}>
+              {visibleBlocks.map((block: any) => (
+                <button
+                  key={block.id}
+                  className={effectiveBlockId === block.id ? styles.activeTab : ''}
+                  onClick={() => setActiveBlockId(block.id)}
+                  title={`Корпус ${block.number}`}
+                >
+                  {block.number}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{ marginLeft: projectHasBuildings ? '0' : 'auto', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             <span className={styles.filterLabel}>Фильтры:</span>
             <select value={activeProjectId || ''} onChange={(e) => {
               setActiveProjectId(e.target.value);
               const p = projects.find(x => x.id === e.target.value);
               setActiveBlockId(p?.blocks?.[0]?.id || null);
+              setActiveBuildingNumber(p?.blocks?.[0]?.buildingNumber || null);
             }} className={styles.filterSelect}>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
@@ -1558,6 +1625,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
           <div className={styles.legendItem}><span className={styles.contractSignedBox}></span> Договор</div>
           <div className={styles.legendItem}><span className={styles.fullyPaidBox}></span> Продано</div>
           <div className={styles.legendItem}><span className={styles.serviceBox}></span> Служебная</div>
+          <div className={styles.legendItem}><span className={styles.excludedBox}></span> Не для продажи</div>
         </div>
 
         {/* Шахматка - сетка квартир */}

@@ -191,28 +191,29 @@ export async function logPhoneView(leadId: string, managerId: string, reason: st
 
 export async function getLeads(organizationId: string) {
   try {
-    // "Ленивая" проверка снапшота цены (reconcileExpiredPromoDeals) не влияет на структуру
-    // результата — это фоновая починка устаревших сделок, поэтому не ждём её отдельно,
-    // а запускаем параллельно с чтением лидов (было 2 последовательных RTT, стал 1).
-    const { reconcileExpiredPromoDeals } = await import('./promotions');
-    const [, leads] = await Promise.all([
-      reconcileExpiredPromoDeals(organizationId),
-      prisma.$queryRaw`
-        SELECT l.*, p.name as "interestedProjectName"
-        FROM "Lead" l
-        LEFT JOIN "Project" p ON l."interestedProjectId" = p.id
-        WHERE l."organizationId" = ${organizationId}
-        ORDER BY l."createdAt" DESC
-      ` as Promise<any[]>,
-    ]);
+    // Запускаем фоновую проверку устаревших промо-акций (reconcileExpiredPromoDeals)
+    // асинхронно, не дожидаясь ее завершения, чтобы не блокировать загрузку страницы.
+    import('./promotions').then(({ reconcileExpiredPromoDeals }) => {
+      reconcileExpiredPromoDeals(organizationId).catch(e => {
+        console.error('Background reconcileExpiredPromoDeals error:', e);
+      });
+    });
+
+    const leads: any[] = await prisma.$queryRaw`
+      SELECT l.*, p.name as "interestedProjectName"
+      FROM "Lead" l
+      LEFT JOIN "Project" p ON l."interestedProjectId" = p.id
+      WHERE l."organizationId" = ${organizationId}
+      ORDER BY l."createdAt" DESC
+    `;
 
     if (leads.length === 0) return [];
 
     const leadIds = leads.map((l: any) => l.id);
 
-    // Интересы / журнал изменений / сделки лида не зависят друг от друга — грузим одним
-    // параллельным батчем вместо трёх последовательных запросов (было 3 RTT, стал 1).
-    const [allInterests, allLogs, deals] = await Promise.all([
+    // Выгружаем интересы и сделки параллельно (без ChangeLog, который теперь
+    // подгружается динамически через getLeadById только при открытии досье).
+    const [allInterests, deals] = await Promise.all([
       prisma.$queryRaw`
         SELECT
           li.*,
@@ -227,12 +228,6 @@ export async function getLeads(organizationId: string) {
         JOIN "Project" p ON b."projectId" = p.id
         WHERE li."leadId" IN (${Prisma.join(leadIds)})
       ` as Promise<any[]>,
-      prisma.$queryRaw`
-        SELECT * FROM "ChangeLog"
-        WHERE "leadId" IN (${Prisma.join(leadIds)})
-        ORDER BY "createdAt" DESC
-      ` as Promise<any[]>,
-      // Fetch all deals where the client is either Deal.leadId or DealClient.leadId
       prisma.$queryRaw`
         SELECT DISTINCT
           d.id,
@@ -269,30 +264,57 @@ export async function getLeads(organizationId: string) {
       `;
     }
 
+    // Оптимизируем сборку связей (маппинг) в памяти сервера с квадратичного перебора O(N^2)
+    // до линейного O(N + M + D + U) через хэш-таблицы (Map).
+    const interestsByLeadId = new Map<string, any[]>();
+    for (const interest of allInterests) {
+      const list = interestsByLeadId.get(interest.leadId) || [];
+      list.push(interest);
+      interestsByLeadId.set(interest.leadId, list);
+    }
+
+    const dealsByLeadId = new Map<string, any[]>();
+    for (const deal of deals) {
+      const ids = new Set<string>();
+      if (deal.leadId) ids.add(deal.leadId);
+      if (deal.involvedLeadId) ids.add(deal.involvedLeadId);
+
+      for (const lid of ids) {
+        const list = dealsByLeadId.get(lid) || [];
+        list.push(deal);
+        dealsByLeadId.set(lid, list);
+      }
+    }
+
+    const dealUnitsByDealId = new Map<string, any[]>();
+    for (const du of dealUnits) {
+      const list = dealUnitsByDealId.get(du.dealId) || [];
+      list.push(du);
+      dealUnitsByDealId.set(du.dealId, list);
+    }
+
     return leads.map(lead => {
-      const interests = allInterests
-        .filter(i => i.leadId === lead.id)
-        .map(ri => ({
-          ...ri,
-          unit: {
-            id: ri.unitId,
-            number: ri.unitNumber,
-            price: ri.unitPrice,
-            area: ri.unitArea,
-            rooms: ri.unitRooms,
-            block: {
-              project: {
-                name: ri.projectName
-              }
+      const leadInterestsRaw = interestsByLeadId.get(lead.id) || [];
+      const interests = leadInterestsRaw.map(ri => ({
+        ...ri,
+        unit: {
+          id: ri.unitId,
+          number: ri.unitNumber,
+          price: ri.unitPrice,
+          area: ri.unitArea,
+          rooms: ri.unitRooms,
+          block: {
+            project: {
+              name: ri.projectName
             }
           }
-        }));
+        }
+      }));
 
-      // Find all deals where this lead is involved
-      const leadDeals = deals.filter(d => d.involvedLeadId === lead.id || d.leadId === lead.id);
+      const leadDeals = dealsByLeadId.get(lead.id) || [];
 
       for (const d of leadDeals) {
-        // Primary unit of the deal
+        // Первичное помещение сделки
         const primaryInInterests = interests.some(i => i.unitId === d.unitId);
         if (primaryInInterests) {
           interests.forEach(i => {
@@ -323,8 +345,8 @@ export async function getLeads(organizationId: string) {
           });
         }
 
-        // Additional units of this deal
-        const addUnits = dealUnits.filter(du => du.dealId === d.id);
+        // Дополнительные помещения в этой сделке (DealUnit)
+        const addUnits = dealUnitsByDealId.get(d.id) || [];
         for (const du of addUnits) {
           const extraInInterests = interests.some(i => i.unitId === du.unitId);
           if (extraInInterests) {
@@ -362,7 +384,7 @@ export async function getLeads(organizationId: string) {
         ...lead,
         interests: interests || [],
         deals: [],
-        logs: allLogs.filter(l => l.leadId === lead.id) || []
+        logs: [] // Логи изменений пустые при начальной загрузке, они тянутся при открытии досье
       };
     });
 
