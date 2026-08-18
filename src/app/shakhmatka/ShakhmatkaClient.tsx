@@ -1433,6 +1433,19 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     ? Object.keys(buildingUnitsByFloor).map(Number).sort((a, b) => b - a)
     : [];
 
+  // Ширина колонки каждого корпуса — фиксированная, по САМОМУ ШИРОКОМУ этажу этого
+  // корпуса. Иначе на этажах, где в корпусе меньше квартир (например -1/-2), колонка
+  // сжимается и все заголовки/колонки правее съезжают влево относительно других этажей.
+  const UNIT_W = 180;
+  const UNIT_GAP = 6;
+  const blockColumnWidth = (block: any): number => {
+    const maxCount = Math.max(
+      1,
+      ...buildingFloors.map(f => ((buildingUnitsByFloor[f] && buildingUnitsByFloor[f][block.id]) || []).length)
+    );
+    return maxCount * UNIT_W + (maxCount - 1) * UNIT_GAP;
+  };
+
   // Проверка фильтров
   const isFilteredOut = (unit: any) => {
     if (statusFilter.length > 0) {
@@ -1465,16 +1478,6 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     });
     return { free, soft, hard, sold, total: currentBlock?.units?.length || 0 };
   }, [currentBlock]);
-
-    // 🔍 ДИАГНОСТИКА — добавьте сюда
-  console.log('projects:', projects);
-  console.log('activeProjectId:', activeProjectId);
-  console.log('activeBlockId:', activeBlockId);
-  console.log('currentProject:', currentProject);
-  console.log('projectHasBuildings:', projectHasBuildings);
-  console.log('buildingNumbers:', buildingNumbers);
-  console.log('effectiveBuildingNumber:', effectiveBuildingNumber);
-  console.log('visibleBlocks:', visibleBlocks);
 
   if (!projects || projects.length === 0) {
     return (
@@ -1672,7 +1675,13 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                 <div className={styles.floorNum} />
                 <div style={{ display: 'flex', gap: '40px' }}>
                   {visibleBlocks.map((block: any) => (
-                    <div key={block.id} style={{ minWidth: '180px', textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>
+                    <div
+                      key={block.id}
+                      style={{
+                        width: `${blockColumnWidth(block)}px`, flexShrink: 0,
+                        textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#1e293b',
+                      }}
+                    >
                       Корпус {block.number}
                     </div>
                   ))}
@@ -1686,7 +1695,11 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                     {visibleBlocks.map((block: any) => {
                       const unitsHere = (buildingUnitsByFloor[floor] && buildingUnitsByFloor[floor][block.id]) || [];
                       return (
-                        <div key={block.id} className={styles.units}>
+                        <div
+                          key={block.id}
+                          className={styles.units}
+                          style={{ width: `${blockColumnWidth(block)}px`, flexShrink: 0 }}
+                        >
                           {unitsHere.map((unit: any) => {
                             const filteredOut = isFilteredOut(unit);
                             return (
