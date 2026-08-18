@@ -266,16 +266,16 @@ export async function getLeads(organizationId: string) {
 
     // Оптимизируем сборку связей (маппинг) в памяти сервера с квадратичного перебора O(N^2)
     // до линейного O(N + M + D + U) через хэш-таблицы (Map).
-    const interestsByLeadId = new Map();
+    const interestsByLeadId = new Map<string, any[]>();
     for (const interest of allInterests) {
       const list = interestsByLeadId.get(interest.leadId) || [];
       list.push(interest);
       interestsByLeadId.set(interest.leadId, list);
     }
 
-    const dealsByLeadId = new Map();
+    const dealsByLeadId = new Map<string, any[]>();
     for (const deal of deals) {
-      const ids = new Set();
+      const ids = new Set<string>();
       if (deal.leadId) ids.add(deal.leadId);
       if (deal.involvedLeadId) ids.add(deal.involvedLeadId);
 
@@ -286,7 +286,7 @@ export async function getLeads(organizationId: string) {
       }
     }
 
-    const dealUnitsByDealId = new Map();
+    const dealUnitsByDealId = new Map<string, any[]>();
     for (const du of dealUnits) {
       const list = dealUnitsByDealId.get(du.dealId) || [];
       list.push(du);

@@ -74,7 +74,7 @@ export async function getProjects(organizationId: string) {
 
   // Сортируем квартиры в каждом блоке по floor DESC, number ASC (алфавитная сортировка)
   for (const [blockId, list] of unitsByBlockId.entries()) {
-    list.sort((a, b) => {
+    list.sort((a: any, b: any) => {
       if (b.floor !== a.floor) {
         return b.floor - a.floor;
       }
@@ -97,7 +97,7 @@ export async function getProjects(organizationId: string) {
 
   // Сортируем блоки по buildingNumber (числовая сортировка, NULLS FIRST) и по number ASC
   for (const [projectId, list] of blocksByProjectId.entries()) {
-    list.sort((a, b) => {
+    list.sort((a: any, b: any) => {
       const aVal = a.buildingNumber && a.buildingNumber.trim() !== '' ? parseInt(a.buildingNumber, 10) : null;
       const bVal = b.buildingNumber && b.buildingNumber.trim() !== '' ? parseInt(b.buildingNumber, 10) : null;
 
