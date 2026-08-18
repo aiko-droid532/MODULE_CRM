@@ -157,6 +157,9 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   // Состояния для импорта Excel
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  // В файле заказчика нет колонки с названием ЖК (только корпус) — ЖК выбирается
+  // здесь заранее, все строки файла импортируются в него.
+  const [importProjectId, setImportProjectId] = useState('');
   const [importResult, setImportResult] = useState<any>(null);
 
   // Состояния для конструктора ЖК и корпусов
@@ -1173,19 +1176,24 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
       alert('Выберите файл Excel');
       return;
     }
+    if (!importProjectId) {
+      alert('Выберите ЖК, в который импортировать квартиры');
+      return;
+    }
 
     setLoading(true);
     setImportResult(null);
     const formData = new FormData();
     formData.append('file', importFile);
 
-    const res = await importUnitsFromExcel(formData, organizationId, organizationId);
+    const res = await importUnitsFromExcel(formData, organizationId, organizationId, importProjectId);
 
     if (res.success) {
       alert(` Импорт завершен!\n Добавлено: ${res.imported}\n Обновлено: ${res.updated}\n Всего строк: ${res.total}\n${res.errors ? ` Ошибок: ${res.errors.length}` : ''}`);
       router.refresh();
       setShowImportModal(false);
       setImportFile(null);
+      setImportProjectId('');
       setImportResult(null);
     } else {
       alert(' Ошибка импорта: ' + res.error);
@@ -1194,17 +1202,19 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     setLoading(false);
   };
 
-  // Скачивание шаблона Excel
+  // Скачивание шаблона Excel — колонки как в реальной выгрузке заказчика (лист
+  // "Products"). "#" и "PTD" приняты в шаблоне по их просьбе, но не идут в базу —
+  // у нас нет для них соответствующих полей (см. import.ts).
   const downloadTemplate = () => {
     try {
       const template = [
-        { projectName: 'ЖК "Астана Тауэр"', blockNumber: 'А', floor: 1, number: '101', area: 45.5, rooms: 1, price: 180000, type: 'Apartment', viewType: 'На город', address: 'пр. Мангилик Ел, 25' },
-        { projectName: 'ЖК "Астана Тауэр"', blockNumber: 'А', floor: 1, number: '102', area: 65.2, rooms: 2, price: 250000, type: 'Apartment', viewType: 'Во двор', address: 'пр. Мангилик Ел, 25' }
+        { '#': 1, 'Building/Block': '6A', Floor: 1, '№ Flat': '1', PTD: 1, Status: 'Available', Rooms: '1 Rooms Studio', 'Area (sq meters)': 45.5, 'Living Area (sq meters)': 42.1, 'Balcony (sq meters)': 3.4, 'Contract #': '', Year: 2028, Month: 1, Date: '15.06.2026', 'Registration in the Public Registry': 'No', 'Available for sale': 'Yes', 'Price Incl. VAT (Sq meters/$)': 1180, 'Full Price ($)': 180000 },
+        { '#': 2, 'Building/Block': '6A', Floor: 1, '№ Flat': '2', PTD: 2, Status: 'Available', Rooms: 'Commercial', 'Area (sq meters)': 65.2, 'Living Area (sq meters)': 65.2, 'Balcony (sq meters)': 0, 'Contract #': '', Year: 2028, Month: 1, Date: '15.06.2026', 'Registration in the Public Registry': 'No', 'Available for sale': 'Yes', 'Price Incl. VAT (Sq meters/$)': 1000, 'Full Price ($)': 250000 }
       ];
       const worksheet = XLSX.utils.json_to_sheet(template);
-      worksheet['!cols'] = [{ wch: 20 }, { wch: 12 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 25 }];
+      worksheet['!cols'] = [{ wch: 5 }, { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 6 }, { wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 14 }];
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Template');
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Products');
       XLSX.writeFile(workbook, 'import_template.xlsx');
     } catch (error) {
       console.error('Error downloading template:', error);
@@ -2765,11 +2775,23 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
 
       {/* Модалка импорта Excel */}
       {showImportModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowImportModal(false)}>
+        <div className={styles.modalOverlay} onClick={() => { setShowImportModal(false); setImportProjectId(''); }}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalHeader}><h2>Импорт каталога</h2><button className={styles.modalCloseBtn} onClick={() => setShowImportModal(false)}></button></div>
+            <div className={styles.modalHeader}><h2>Импорт каталога</h2><button className={styles.modalCloseBtn} onClick={() => { setShowImportModal(false); setImportProjectId(''); }}></button></div>
             <div className={styles.modalBody}>
-              <div className={styles.modalDesc}>Загрузите файл Excel (.xlsx, .xls) с колонками:<br/><code>projectName, blockNumber, floor, number, area, rooms, price</code></div>
+              <div className={styles.formGroup} style={{ marginBottom: '14px' }}>
+                <label>ЖК, в который импортировать</label>
+                <select className={styles.leadSelect} value={importProjectId} onChange={e => setImportProjectId(e.target.value)}>
+                  <option value="">-- Выберите ЖК --</option>
+                  {projects.map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.nameRu || p.name}</option>
+                  ))}
+                </select>
+                <p className={styles.fileHint} style={{ marginTop: '6px' }}>
+                  В файле заказчика нет колонки с названием ЖК — только корпус ("Building/Block", например "6A"). Все строки файла попадут в выбранный здесь ЖК; корпус возьмётся из файла и создастся автоматически, если его ещё нет.
+                </p>
+              </div>
+              <div className={styles.modalDesc}>Загрузите файл Excel (.xlsx, .xls) с колонками:<br/><code>Building/Block, Floor, № Flat, Status, Rooms, Area (sq meters), ...</code> — как в отчёте заказчика (лист "Products"). Колонки "#" и "PTD" можно оставить как есть — они принимаются, но в базу не записываются.</div>
               <div className={`${styles.fileDropZone} ${importFile ? styles.dragActive : ''}`} onClick={() => document.getElementById('excelFileInput')?.click()}>
                 <div className={styles.fileIcon}>Файл</div>
                 <p><strong>Нажмите для выбора</strong> или перетащите файл</p>
@@ -2785,14 +2807,14 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
               )}
               <div className={styles.formatExample}>
                 <h4>Пример формата Excel</h4>
-                <table className={styles.exampleTable}><thead><tr><th>projectName</th><th>blockNumber</th><th>number</th><th>price</th></tr></thead>
-                <tbody><tr><td>Астана Тауэр</td><td>А</td><td>101</td><td>180000</td></tr>
-                <tr><td>Астана Тауэр</td><td>А</td><td>102</td><td>250000</td></tr></tbody></table>
+                <table className={styles.exampleTable}><thead><tr><th>Building/Block</th><th>Floor</th><th>№ Flat</th><th>Status</th><th>Rooms</th><th>Full Price ($)</th></tr></thead>
+                <tbody><tr><td>6A</td><td>1</td><td>1</td><td>Available</td><td>1 Rooms Studio</td><td>180000</td></tr>
+                <tr><td>6A</td><td>1</td><td>2</td><td>Available</td><td>Commercial</td><td>250000</td></tr></tbody></table>
                 <button className={styles.downloadTemplateBtn} onClick={downloadTemplate}>Скачать шаблон Excel</button>
               </div>
               <div className={styles.modalActions}>
-                <button className={styles.modalCancelBtn} onClick={() => setShowImportModal(false)}>Отмена</button>
-                <button className={styles.modalImportBtn} onClick={handleImport} disabled={loading || !importFile}>{loading ? 'Импорт...' : 'Загрузить'}</button>
+                <button className={styles.modalCancelBtn} onClick={() => { setShowImportModal(false); setImportProjectId(''); }}>Отмена</button>
+                <button className={styles.modalImportBtn} onClick={handleImport} disabled={loading || !importFile || !importProjectId}>{loading ? 'Импорт...' : 'Загрузить'}</button>
               </div>
             </div>
           </div>
