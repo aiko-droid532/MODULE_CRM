@@ -1084,7 +1084,7 @@ export async function qualifyLead(leadId: string, data: {
 const PROPERTY_TYPE_LABELS_RU: Record<string, string> = {
   Apartment: 'Квартира',
   Commercial: 'Коммерция',
-  Parking: 'Паркинг',
+  Parking: 'Паркиги',
   Storage: 'Кладовка',
 };
 
