@@ -390,7 +390,7 @@ export default function FunnelView({
           // Для модального окна создадим фиктивный элемент, который будет вести себя как группа
           const mergedItem: FunnelItem = {
             key: "CANCELLED_MERGED",
-            label: "Cancelled",
+            label: "Junk",
             type: "group",
             statusKeys: ["FAILED", "CANCELLED"],
           };
