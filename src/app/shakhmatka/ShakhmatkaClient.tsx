@@ -2806,10 +2806,31 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                 </div>
               )}
               <div className={styles.formatExample}>
-                <h4>Пример формата Excel</h4>
-                <table className={styles.exampleTable}><thead><tr><th>Building/Block</th><th>Floor</th><th>№ Flat</th><th>Status</th><th>Rooms</th><th>Full Price ($)</th></tr></thead>
-                <tbody><tr><td>6A</td><td>1</td><td>1</td><td>Available</td><td>1 Rooms Studio</td><td>180000</td></tr>
-                <tr><td>6A</td><td>1</td><td>2</td><td>Available</td><td>Commercial</td><td>250000</td></tr></tbody></table>
+                <h4>Пример формата Excel (все колонки, как в файле заказчика)</h4>
+                <div style={{ overflowX: 'auto' }}>
+                <table className={styles.exampleTable}>
+                  <thead><tr>
+                    <th>#</th><th>Building/Block</th><th>Floor</th><th>№ Flat</th><th>PTD</th><th>Status</th><th>Rooms</th>
+                    <th>Area (sq meters)</th><th>Living Area (sq meters)</th><th>Balcony (sq meters)</th><th>Contract #</th>
+                    <th>Year</th><th>Month</th><th>Date</th><th>Registration in the Public Registry</th>
+                    <th>Available for sale</th><th>Price Incl. VAT (Sq meters/$)</th><th>Full Price ($)</th>
+                  </tr></thead>
+                  <tbody>
+                    <tr>
+                      <td>1</td><td>6A</td><td>1</td><td>1</td><td>1</td><td>Available</td><td>1 Rooms Studio</td>
+                      <td>45.5</td><td>42.1</td><td>3.4</td><td></td>
+                      <td>2028</td><td>1</td><td>15.06.2026</td><td>No</td>
+                      <td>Yes</td><td>1180</td><td>180000</td>
+                    </tr>
+                    <tr>
+                      <td>2</td><td>6A</td><td>1</td><td>2</td><td>2</td><td>Available</td><td>Commercial</td>
+                      <td>65.2</td><td>65.2</td><td>0</td><td></td>
+                      <td>2028</td><td>1</td><td>15.06.2026</td><td>No</td>
+                      <td>Yes</td><td>1000</td><td>250000</td>
+                    </tr>
+                  </tbody>
+                </table>
+                </div>
                 <button className={styles.downloadTemplateBtn} onClick={downloadTemplate}>Скачать шаблон Excel</button>
               </div>
               <div className={styles.modalActions}>
