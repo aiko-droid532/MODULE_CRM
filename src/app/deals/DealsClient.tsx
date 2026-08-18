@@ -39,6 +39,9 @@ const STAGES: { id: string; label: string; color: string; type: StageType; child
   { id: 'SECOND_CALL', label: 'Коллцентр 2', color: '#2563eb', type: 'normal' },
   { id: 'THIRD_CALL', label: 'Обработанный Звонок', color: '#1d4ed8', type: 'normal' },
 
+  // "Распределён" — визуально перенесена до колл-центра по просьбе заказчика
+  { id: 'CONSULTATION', label: 'Распределён', color: '#f59e0b', type: 'normal' },
+
   { id: 'PRE_RESERVATION', label: '1-й звонок', color: '#fbbf24', type: 'normal' },
   { id: 'RESERVATION', label: '2-й звонок', color: '#f97316', type: 'normal' },
   { id: 'CONTRACT_PREPARATION', label: '3-й звонок', color: '#a855f7', type: 'normal' },
@@ -61,10 +64,10 @@ const STATUS_ORDER: Record<string, number> = {
   CALL: 2,
   SECOND_CALL: 3,
   THIRD_CALL: 4,
-  PRE_RESERVATION: 5,
-  RESERVATION: 6,
-  CONTRACT_PREPARATION: 7,
-  CONSULTATION: 8,
+  CONSULTATION: 5,          // ← новый индекс
+  PRE_RESERVATION: 6,
+  RESERVATION: 7,
+  CONTRACT_PREPARATION: 8,
   MEETING: 9,
   CLIENT_CONFIRMATION: 10,
   CONTRACT: 11,
