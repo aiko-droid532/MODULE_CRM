@@ -408,22 +408,13 @@ export async function getLeadsBoard(organizationId: string) {
   }
 }
 
-export async function assignLeadToManager(leadId: string, managerId: string) {
-  try {
-    await requireRole(canManageDeals, 'взять лида в работу');
-    const res = await prisma.$executeRaw`
-      UPDATE "Lead"
-      SET "managerId" = ${managerId}, "status" = 'IN_QUALIFICATION', "updatedAt" = NOW()
-      WHERE "id" = ${leadId} AND "managerId" IS NULL
-    `;
-    if (res === 0) return { success: false, error: 'Лид уже взят в работу другим менеджером!' };
-
-    revalidatePath('/clients');
-    return { success: true };
-  } catch (error) {
-    console.error('assignLeadToManager error:', error);
-    return { success: false, error: 'SERVER_ERROR' };
-  }
+// "Взять лида в работу" — теперь со скоупом по отделу (BR-B08, Ролевая модель
+// фаза 3): менеджер может забрать только лид своего отдела, самозахват чужого
+// пула запрещён. Реализация — в actions/leadDistribution.ts (claimPoolLead),
+// здесь просто сохранена прежняя сигнатура ради существующих вызовов.
+export async function assignLeadToManager(leadId: string, managerId: string, organizationId?: string) {
+  const { claimPoolLead } = await import('./leadDistribution');
+  return claimPoolLead(leadId, managerId, organizationId || '');
 }
 
 export async function logCallAttempt(leadId: string) {
@@ -845,6 +836,11 @@ export async function savePaymentScheduleAction(data: {
       }
     }
 
+    // Пороги — настройка коммерческой политики организации (BR-B05), а не
+    // хардкод в коде (Ролевая модель, фаза 4).
+    const { getDiscountThresholds } = await import('./discountPolicy');
+    const thresholds = await getDiscountThresholds(data.organizationId);
+
     // Уходит заявкой на согласование РОП/админу (а не отклоняется отказом), если:
     // а) роль manager и есть хоть какая-то ручная скидка (даже в пределах её порога — по договорённости
     //    любая ручная скидка менеджера требует подтверждения), ИЛИ
@@ -852,7 +848,7 @@ export async function savePaymentScheduleAction(data: {
     //    иначе применение уже одобренной при создании крупной акции без всякой доп.скидки было бы
     //    вообще несохраняемым для всех ролей кроме admin.
     const needsApproval = (role === 'manager' && discountPercent > 0)
-      || (combinedDiscountPercent > 0 && !canApplyDiscountPercent(role, combinedDiscountPercent));
+      || (combinedDiscountPercent > 0 && !canApplyDiscountPercent(role, combinedDiscountPercent, thresholds));
 
     if (needsApproval) {
       const { submitDiscountApprovalRequest } = await import('./discountApprovals');
@@ -863,6 +859,7 @@ export async function savePaymentScheduleAction(data: {
         proposedDiscountPercent: combinedDiscountPercent,
         submittedById: data.initiatorId || '',
         organizationId: data.organizationId,
+        thresholdAtSubmission: thresholds[role] ?? 0,
       });
       if (!reqRes.success) {
         return { success: false, error: 'Не удалось отправить скидку на согласование' };
@@ -1018,18 +1015,25 @@ export async function getActiveManagers(organizationId: string) {
   }
 }
 
+// Раньше эта функция только меняла статус лида на IN_QUALIFICATION, не назначая
+// ответственного (ровно проблема из ТЗ: "автораспределение существует, но
+// ответственного не назначает"). Теперь реально маршрутизирует лид по отделу
+// и правилу распределения (см. actions/leadDistribution.ts).
 export async function assignLeadAutomatically(leadId: string, organizationId: string) {
   try {
     await requireRole(canManageDeals, 'автораспределение лида');
-    await prisma.$executeRaw`
-      UPDATE "Lead" 
-      SET "status" = 'IN_QUALIFICATION', 
-          "assignedAt" = NOW(), 
-          "updatedAt" = NOW()
-      WHERE id = ${leadId}
-    `;
-    
-    console.log(` Лид ${leadId} переведен в статус IN_QUALIFICATION`);
+    const { distributeLead } = await import('./leadDistribution');
+    const res = await distributeLead(leadId, organizationId);
+    if (!res.success) return { success: false, error: 'SERVER_ERROR' };
+
+    // Если движок реально назначил ответственного — переводим в квалификацию,
+    // как и раньше. Если лид остался в пуле отдела (некого назначить / ручное
+    // правило) — статус NEW оставляем как есть, это и есть пул.
+    if (res.managerId) {
+      await prisma.$executeRaw`
+        UPDATE "Lead" SET "status" = 'IN_QUALIFICATION', "updatedAt" = NOW() WHERE id = ${leadId}
+      `;
+    }
     return { success: true };
   } catch (error) {
     console.error('assignLeadAutomatically error:', error);
@@ -1070,7 +1074,21 @@ export async function qualifyLead(leadId: string, data: {
         "updatedAt" = NOW()
       WHERE id = ${leadId}
     `;
-    
+
+    // Если ЖК интереса только что стал известен и лид ещё никому не назначен —
+    // маршрутизируем его в отдел, ведущий этот ЖК (BR-B08). Уже взятые в
+    // работу лиды не трогаем — менеджера, который начал общение с клиентом,
+    // мы не выдёргиваем из-под него сменой ЖК при квалификации.
+    if (data.interestedProjectId) {
+      try {
+        const leadRow: any[] = await prisma.$queryRaw`SELECT "organizationId", "managerId" FROM "Lead" WHERE id = ${leadId}`;
+        if (leadRow[0] && !leadRow[0].managerId) {
+          const { distributeLead } = await import('./leadDistribution');
+          await distributeLead(leadId, leadRow[0].organizationId);
+        }
+      } catch (_) {}
+    }
+
     revalidatePath('/clients');
     return { success: true };
   } catch (error) {
@@ -1136,31 +1154,9 @@ export async function saveSearchCriteria(
 }
 
 
-export async function escalateExpiredLeads() {
-  try {
-    const expiredLeads: any[] = await prisma.$queryRaw`
-      SELECT l.id, l.name, l.managerId, m."supervisorId"
-      FROM "Lead" l
-      LEFT JOIN "Manager" m ON l."managerId" = m.id
-      WHERE l.status = 'NEW' 
-        AND l."createdAt" < NOW() - INTERVAL '15 minutes'
-        AND l."escalatedAt" IS NULL
-    `;
-    
-    for (const lead of expiredLeads) {
-      await prisma.$executeRaw`
-        UPDATE "Lead" SET "escalatedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${lead.id}
-      `;
-      
-      console.log(` Эскалация лида ${lead.name} (${lead.id}) для менеджера ${lead.managerId}`);
-    }
-    
-    return { success: true, escalatedCount: expiredLeads.length };
-  } catch (error) {
-    console.error('escalateExpiredLeads error:', error);
-    return { success: false };
-  }
-}
+// Эскалация просроченных лидов теперь в actions/leadDistribution.ts —
+// настраиваемый SLA + уведомления руководителям отдела (Ролевая модель, фаза 3),
+// вместо жёстко зашитых 15 минут и одного console.log без реального действия.
 
 export async function getLeadsKanban(organizationId: string) {
   try {

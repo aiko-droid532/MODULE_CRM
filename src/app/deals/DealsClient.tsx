@@ -189,22 +189,36 @@ import { canManageDeals, canViewAllDeals, isReadOnly, canApprovePromotions, User
 
 interface DealsClientProps {
   initialDeals: any[];
+  // Отделы (Ролевая модель, фаза 1): null — без ограничений (админ/старший
+  // менеджер/юрист, как и раньше; либо РОП, которому пока не назначен ни один
+  // отдел — временный откат к старому поведению, чтобы фаза 1 не обрезала
+  // видимость раньше, чем админ реально настроит отделы). Массив — РОП видит
+  // только сотрудников своих отделов (BR-B06 "не больше, не меньше").
+  visibleManagerIds?: string[] | null;
+  // Отпуск/замещение (Ролевая модель, фаза 5): свои id + id всех, кого этот
+  // сотрудник временно замещает сегодня (BR "права отзываются автоматически" —
+  // диапазон дат, никакого отдельного шага отзыва не требуется). По умолчанию
+  // [managerId], если проп не передан — поведение не отличается от прежнего.
+  effectiveManagerIds?: string[];
   organizationId: string;
   userRole?: string;
   managerId?: string;
 }
 
-export default function DealsClient({ initialDeals, organizationId, userRole = 'manager', managerId = '' }: DealsClientProps) {
+export default function DealsClient({ initialDeals, visibleManagerIds = null, effectiveManagerIds, organizationId, userRole = 'manager', managerId = '' }: DealsClientProps) {
   const role = userRole as UserRole;
   const canManage = canManageDeals(role);
   const canApprove = canApprovePromotions(role);
   const canViewAll = canViewAllDeals(role);
   const readOnly = isReadOnly(role);
+  const ownIds = effectiveManagerIds || [managerId];
 
   // Менеджер видит только свои сделки (плюс ещё не назначенные — managerId пуст)
+  // и сделки тех, кого сегодня временно замещает (фаза 5).
+  // РОП с отделами — только сделки менеджеров своего отдела (см. visibleManagerIds выше).
   const filteredInitialDeals = canViewAll
-    ? initialDeals
-    : initialDeals.filter(d => d.managerId === managerId || !d.managerId);
+    ? (visibleManagerIds ? initialDeals.filter(d => visibleManagerIds.includes(d.managerId) || !d.managerId) : initialDeals)
+    : initialDeals.filter(d => ownIds.includes(d.managerId) || !d.managerId);
 
   const router = useRouter();
   const [deals, setDeals] = useState(filteredInitialDeals);
@@ -1039,6 +1053,11 @@ const handleSetPrimaryClient = async (leadId: string) => {
       <strong style={{ color: '#b45309' }}> На согласовании: скидка {pendingDiscountRequest.proposedDiscountPercent}%</strong>
       <div style={{ fontSize: '0.82rem', color: '#78350f', margin: '4px 0 10px' }}>
         Предложил: {pendingDiscountRequest.submittedByName || 'менеджер'}
+        {pendingDiscountRequest.escalatedToAdmin && (
+          <span style={{ marginLeft: '8px', color: '#991b1b', fontWeight: 700 }}>
+            · эскалировано администратору (в отделе нет руководителя)
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
         <button
@@ -1900,7 +1919,9 @@ const handleSetPrimaryClient = async (leadId: string) => {
             if (selectedDeal) {
               try {
                 const freshDeals = await getDeals(organizationId);
-                setDeals(canViewAll ? freshDeals : freshDeals.filter((d: any) => d.managerId === managerId || !d.managerId));
+                setDeals(canViewAll
+                  ? (visibleManagerIds ? freshDeals.filter((d: any) => visibleManagerIds.includes(d.managerId) || !d.managerId) : freshDeals)
+                  : freshDeals.filter((d: any) => ownIds.includes(d.managerId) || !d.managerId));
                 const updatedDeal = freshDeals.find((d: any) => d.id === selectedDeal.id);
                 if (updatedDeal) {
                   setSelectedDeal(updatedDeal);

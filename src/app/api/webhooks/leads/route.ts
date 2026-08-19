@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db as prisma } from '@/lib/db';
 import { addToWaitingListAction } from '@/app/actions/booking';
+import { distributeLead } from '@/app/actions/leadDistribution';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,15 +69,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Ищем квартиру в нашей БД по external flat_id
+    // 5. Ищем квартиру в нашей БД по external flat_id — а через неё и ЖК,
+    // чтобы сразу маршрутизировать лида в нужный отдел (BR-B08).
     let internalUnitId: string | null = null;
+    let interestedProjectId: string | null = null;
     if (flatExternalId) {
       const units: any[] = await prisma.$queryRaw`
-        SELECT id FROM "Unit"
-        WHERE "externalId" = ${String(flatExternalId)} AND "externalSource" = 'parkboulevard.ge'
+        SELECT u.id, p.id as "projectId"
+        FROM "Unit" u
+        LEFT JOIN "Block" b ON b.id = u."blockId"
+        LEFT JOIN "Project" p ON p.id = b."projectId"
+        WHERE u."externalId" = ${String(flatExternalId)} AND u."externalSource" = 'parkboulevard.ge'
         LIMIT 1
       `;
-      if (units.length > 0) internalUnitId = units[0].id;
+      if (units.length > 0) {
+        internalUnitId = units[0].id;
+        interestedProjectId = units[0].projectId || null;
+      }
     }
 
     // 6. Создаём лида напрямую через SQL
@@ -86,6 +95,7 @@ export async function POST(req: NextRequest) {
         "id", "name", "phone", "email", "source", "managerNotes",
         "organizationId", "status", "callAttempts", "type",
         "externalId", "externalSource", "language", "comment",
+        "interestedProjectId",
         "createdAt", "updatedAt"
       ) VALUES (
         ${leadId}, ${name}, ${phone}, ${email},
@@ -94,9 +104,18 @@ export async function POST(req: NextRequest) {
         ${orgId}, 'NEW', 0, 'LEAD',
         ${externalId}, 'parkboulevard.ge',
         ${language}, ${comment},
+        ${interestedProjectId},
         NOW(), NOW()
       )
     `;
+
+    // 6.1. Маршрутизация по отделам (Ролевая модель, фаза 3) — раньше лид
+    // оставался вообще без ответственного до тех пор, пока кто-то не
+    // "самозахватит" его кнопкой. Теперь сразу уходит в отдел, ведущий этот ЖК
+    // (или в отдел по умолчанию), и назначается сотруднику по правилу отдела.
+    try {
+      await distributeLead(leadId, orgId);
+    } catch (_) {}
 
     // 7. Если знаем квартиру — добавляем в лист ожидания
     if (internalUnitId) {

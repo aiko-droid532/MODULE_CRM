@@ -170,15 +170,20 @@ export async function createTemplate(data: {
 }
 
 // Загрузка списка договоров
-export async function getContractsList(organizationId: string, userRole?: string, managerId?: string) {
+export async function getContractsList(organizationId: string, userRole?: string, managerId?: string, visibleManagerIds?: string[] | null) {
   noStore();
   await initContractTables();
   try {
     const role = (userRole || 'manager') as UserRole;
     const viewAll = canViewAllContracts(role);
+    // Отделы (Ролевая модель, фаза 1): у РОП с назначенными отделами viewAll всё
+    // так же true, но видимость дополнительно сужается до сотрудников его отделов.
+    const scopeFilter = viewAll
+      ? (visibleManagerIds ? Prisma.sql`AND d."managerId" IN (${Prisma.join(visibleManagerIds)})` : Prisma.empty)
+      : Prisma.sql`AND d."managerId" = ${managerId || ''}`;
 
     const list: any[] = await prisma.$queryRaw`
-      SELECT 
+      SELECT
         c.*,
         t.name as "templateName",
         t.type as "templateType",
@@ -199,7 +204,7 @@ export async function getContractsList(organizationId: string, userRole?: string
       LEFT JOIN "Block" b ON u."blockId" = b.id
       LEFT JOIN "Project" p ON b."projectId" = p.id
       WHERE c."organizationId" = ${organizationId}
-        ${viewAll ? Prisma.empty : Prisma.sql`AND d."managerId" = ${managerId || ''}`}
+        ${scopeFilter}
       ORDER BY c."createdAt" DESC
     `;
     return list;
@@ -210,14 +215,17 @@ export async function getContractsList(organizationId: string, userRole?: string
 }
 
 // Загрузка сделок для выбора в форме
-export async function getDealsForContract(organizationId: string, userRole?: string, managerId?: string) {
+export async function getDealsForContract(organizationId: string, userRole?: string, managerId?: string, visibleManagerIds?: string[] | null) {
   noStore();
   try {
     const role = (userRole || 'manager') as UserRole;
     const viewAll = canViewAllContracts(role);
+    const scopeFilter = viewAll
+      ? (visibleManagerIds ? Prisma.sql`AND d."managerId" IN (${Prisma.join(visibleManagerIds)})` : Prisma.empty)
+      : Prisma.sql`AND d."managerId" = ${managerId || ''}`;
 
     const deals: any[] = await prisma.$queryRaw`
-      SELECT 
+      SELECT
         d.id,
         d."totalAmount",
         l.name as "clientName",
@@ -229,7 +237,7 @@ export async function getDealsForContract(organizationId: string, userRole?: str
       LEFT JOIN "Block" b ON u."blockId" = b.id
       LEFT JOIN "Project" p ON b."projectId" = p.id
       WHERE d."organizationId" = ${organizationId} AND d.status != 'CANCELLED'
-        ${viewAll ? Prisma.empty : Prisma.sql`AND d."managerId" = ${managerId || ''}`}
+        ${scopeFilter}
       ORDER BY d."createdAt" DESC
     `;
     return deals;

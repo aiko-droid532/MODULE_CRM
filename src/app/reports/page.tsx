@@ -37,7 +37,7 @@ import {
 import { getExchangeRate } from '@/app/actions/exchange';
 import ReportsClient from './ReportsClient';
 
-import { extractRole, canViewReports } from '@/lib/roles';
+import { extractRole, resolveEffectiveRole, canViewReports } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +51,7 @@ export default async function ReportsPage({
 
   let organizationId = 'default';
   let userRole = 'manager';
+  let managerId = '';
 
   if (token) {
     try {
@@ -61,6 +62,8 @@ export default async function ReportsPage({
         console.log('----------------------------------------');
         organizationId = ((payload as any).app_metadata?.organization_id as string) || '741be209-ad6f-4483-92ee-298a36899bcf';
         userRole = extractRole(payload);
+        managerId = (payload.sub as string) || '';
+        userRole = await resolveEffectiveRole(userRole as any, managerId);
       }
     } catch (e) {
       console.error('Token verification failed:', e);

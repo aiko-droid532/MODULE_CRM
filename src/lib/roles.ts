@@ -23,13 +23,16 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 // ─── Навигация ────────────────────────────────────────────────────────────────
 // Список разделов которые роль может видеть в меню
 export const NAV_ACCESS: Record<UserRole, string[]> = {
-  admin:          ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts'],
-  rop:            ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts'],
+  admin:          ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts', 'departments'],
+  rop:            ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts', 'departments'],
   senior_manager: ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'debts'],
   manager:        ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'debts'],
   lawyer:         ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports'],
   marketing:      ['analytics'],
-  call_center:    ['analytics'],
+  // call_center получает доступ к разделу "Клиенты" (пул нераспределённых
+  // лидов, первичная квалификация) — Ролевая модель, фаза 3, TO-BE "Работа
+  // маркетинга"/"Распределение входящего лида". Раньше был фактически исключён.
+  call_center:    ['analytics', 'clients'],
 };
 
 // ─── Права ────────────────────────────────────────────────────────────────────
@@ -49,7 +52,15 @@ export function canManagePrices(role: UserRole): boolean {
 // В оригинальном ТЗ пороги завязаны на Back-office/Топ-менеджмент/Совет директоров,
 // которых в нашей ролевой модели нет — согласовано, что маппим по нарастающей:
 // manager → senior_manager → rop → admin.
-const DISCOUNT_THRESHOLDS: Record<UserRole, number> = {
+//
+// Ролевая модель, фаза 4 (BR-B05): "Порог самостоятельной скидки — параметр
+// коммерческой политики, а не свойство программы" — эти значения теперь только
+// ДЕФОЛТ для организаций, которые ещё не настроили свои пороги через интерфейс
+// (см. actions/discountPolicy.ts, /departments). Функции ниже принимают
+// необязательный параметр thresholds — передавайте туда результат
+// getDiscountThresholds(organizationId), если он уже загружен; без него
+// поведение остаётся ровно таким же, как было до фазы 4.
+export const DEFAULT_DISCOUNT_THRESHOLDS: Record<UserRole, number> = {
   manager: 3,
   senior_manager: 5,
   rop: 10,
@@ -60,23 +71,24 @@ const DISCOUNT_THRESHOLDS: Record<UserRole, number> = {
 };
 
 // Максимальный % скидки, который роль может сохранить самостоятельно
-export function getMaxDiscountPercent(role: UserRole): number {
-  return DISCOUNT_THRESHOLDS[role] ?? 0;
+export function getMaxDiscountPercent(role: UserRole, thresholds?: Record<string, number>): number {
+  const table = thresholds || DEFAULT_DISCOUNT_THRESHOLDS;
+  return table[role] ?? 0;
 }
 
 // Может ли роль сохранить скидку данного размера (в %) без дополнительного согласования
-export function canApplyDiscountPercent(role: UserRole, percent: number): boolean {
-  return percent <= getMaxDiscountPercent(role);
+export function canApplyDiscountPercent(role: UserRole, percent: number, thresholds?: Record<string, number>): boolean {
+  return percent <= getMaxDiscountPercent(role, thresholds);
 }
 
 // Кто должен согласовать скидку такого размера — для текста подсказки в интерфейсе.
 // Реально согласовать заявку (approveDiscountRequest/rejectDiscountRequest) может только
 // роль с canApprovePromotions (rop/admin) — senior_manager кнопки согласования не видит
 // и провести согласование не может, поэтому "Старший менеджер" как отдельная ступень
-// здесь не указывается, чтобы не вводить в заблуждение (границы берём из DISCOUNT_THRESHOLDS).
-export function getRequiredApproverLabel(percent: number): string {
-  if (percent <= getMaxDiscountPercent('manager')) return 'Менеджер';
-  if (percent <= getMaxDiscountPercent('rop')) return 'Руководитель ОП';
+// здесь не указывается, чтобы не вводить в заблуждение (границы берём из thresholds).
+export function getRequiredApproverLabel(percent: number, thresholds?: Record<string, number>): string {
+  if (percent <= getMaxDiscountPercent('manager', thresholds)) return 'Менеджер';
+  if (percent <= getMaxDiscountPercent('rop', thresholds)) return 'Руководитель ОП';
   return 'Администратор';
 }
 
@@ -145,6 +157,20 @@ export function canManageSystem(role: UserRole): boolean {
   return role === 'admin';
 }
 
+// ─── Отделы (Ролевая модель) ──────────────────────────────────────────────────
+
+// Создание/переименование/удаление отдела, назначение руководителя отдела —
+// только администратор (RACI: "Создание отдела" R,A = Админ).
+export function canManageDepartments(role: UserRole): boolean {
+  return role === 'admin';
+}
+
+// Включение сотрудника в отдел / перевод между отделами — РОП или администратор
+// (RACI: "Включение сотрудника в отдел" R,A = РОП, R = Админ).
+export function canAssignDepartmentMembership(role: UserRole): boolean {
+  return ['admin', 'rop'].includes(role);
+}
+
 // ─── Утилиты ──────────────────────────────────────────────────────────────────
 
 // Парсим роль из JWT payload (app_metadata.role)
@@ -180,6 +206,31 @@ export class ForbiddenError extends Error {
   }
 }
 
+// ── Эффективная роль (Ролевая модель, фаза 2) ───────────────────────────────
+// Роль во внешнем токене (ERP/Supabase) мы изменить не можем — нет доступа к
+// их admin API. Поэтому CRM-назначенная роль (Manager.role/roleExpiresAt)
+// имеет ПРИОРИТЕТ над токеном, пока не истекла — единственный способ выдавать
+// полномочия "на период" (см. accounts.ts: linkAccountToCard/setManagerRole).
+// Живёт в roles.ts (а не в accounts.ts), чтобы не образовался цикл импортов —
+// accounts.ts и так уже импортирует requireRole/canManageSystem отсюда.
+export async function resolveEffectiveRole(jwtRole: UserRole, managerId: string): Promise<UserRole> {
+  if (!managerId) return jwtRole;
+  try {
+    const { db } = await import('./db');
+    const rows: any[] = await db.$queryRaw`
+      SELECT "role", "roleExpiresAt" FROM "Manager" WHERE id = ${managerId} LIMIT 1
+    `;
+    const m = rows[0];
+    if (!m || !m.role) return jwtRole;
+    if (m.roleExpiresAt && new Date(m.roleExpiresAt) < new Date()) return jwtRole; // срок вышел — откат к токену
+    return m.role as UserRole;
+  } catch (error) {
+    // Колонки ещё не созданы (ленивая миграция в accounts.ts) или БД недоступна —
+    // никогда не блокируем вход из-за этого, просто используем роль из токена.
+    return jwtRole;
+  }
+}
+
 // Достаёт роль текущего пользователя из cookie auth_token (только для server actions/'use server' файлов)
 export async function getCurrentRole(): Promise<UserRole> {
   const { cookies } = await import('next/headers');
@@ -191,7 +242,9 @@ export async function getCurrentRole(): Promise<UserRole> {
   const { payload } = await verifyToken(token);
   if (!payload) return 'manager';
 
-  return extractRole(payload);
+  const jwtRole = extractRole(payload);
+  const managerId = (typeof payload !== 'string' && (payload as any).sub) || '';
+  return resolveEffectiveRole(jwtRole, managerId);
 }
 
 // Достаёт id текущего пользователя (payload.sub) — для записи managerId в AuditLog и т.п.

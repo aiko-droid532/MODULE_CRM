@@ -29,6 +29,16 @@ import { canManageDeals, canViewAllDeals, isReadOnly, UserRole } from '@/lib/rol
 interface ClientManagementClientProps {
   initialLeads: any[];
   projects: any[];
+  // Отделы (Ролевая модель, фаза 1): null — без ограничений, массив — РОП видит
+  // только лиды сотрудников своих отделов (см. пояснение в DealsClientProps).
+  visibleManagerIds?: string[] | null;
+  // Маршрутизация лидов (фаза 3): лиды без ответственного, уже привязанные к
+  // отделу(ам), видимым текущей роли — контакт-центр видит пул целиком (для
+  // первичной квалификации), РОП/менеджер — только пул своего отдела.
+  departmentPool?: any[];
+  // Отпуск/замещение (Ролевая модель, фаза 5): свои id + id тех, кого этот
+  // сотрудник временно замещает сегодня (см. пояснение в DealsClientProps).
+  effectiveManagerIds?: string[];
   organizationId: string;
   userRole?: string;
   managerId?: string;
@@ -460,15 +470,21 @@ function AppointmentDetailModal({ slot, onClose, onRefresh, readOnly = false }: 
   );
 }
 
-export default function ClientManagementClient({ initialLeads, projects, organizationId, userRole = 'manager', managerId = '' }: ClientManagementClientProps) {
+export default function ClientManagementClient({ initialLeads, projects, visibleManagerIds = null, departmentPool = [], effectiveManagerIds, organizationId, userRole = 'manager', managerId = '' }: ClientManagementClientProps) {
   const role = userRole as UserRole;
   const canManage = canManageDeals(role);
   const canViewAllLeads = canViewAllDeals(role);
   const readOnly = isReadOnly(role);
+  const ownIds = effectiveManagerIds || [managerId];
+  // Контакт-центр — доступ к пулу нераспределённых лидов для первичной
+  // квалификации (Ролевая модель, фаза 3), но не к остальному управлению
+  // сделками/лидами — поэтому отдельное право, а не расширение canManageDeals.
+  const canClaimPool = canManage || role === 'call_center';
 
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'leads' | 'clients' | 'schedule'>('leads');
   const [leads, setLeads] = useState(initialLeads);
+  const [pool, setPool] = useState(departmentPool);
   
   // Фильтры лидов
   const [leadSearch, setLeadSearch] = useState('');
@@ -539,6 +555,22 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
     router.refresh();
   };
 
+  // Пул отдела (фаза 3) обновляется вместе с router.refresh() выше — синхронизируем
+  // локальный стейт с пропом, который приходит заново от сервера после этого.
+  useEffect(() => {
+    setPool(departmentPool);
+  }, [departmentPool]);
+
+  const onClaimFromPool = async (id: string) => {
+    const res = await assignLeadToManager(id, currentManagerId, organizationId);
+    if (!res.success) {
+      alert(res.error || 'Не удалось взять лида в работу');
+      return;
+    }
+    setPool(prev => prev.filter(l => l.id !== id));
+    await refreshLeads();
+  };
+
   // Рассчет SLA
   const getSLA = (createdAt: string, status: string) => {
     if (status !== 'NEW') return null;
@@ -550,7 +582,11 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
 
   // Действия лидов
   const onAssign = async (id: string) => {
-    await assignLeadToManager(id, currentManagerId);
+    const res = await assignLeadToManager(id, currentManagerId, organizationId);
+    if (!res.success) {
+      alert(res.error || 'Не удалось взять лида в работу');
+      return;
+    }
     await refreshLeads();
   };
 
@@ -648,11 +684,17 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
   };
 
   // Жесткая фильтрация лидов (исключая CONVERTED)
-  // Менеджер видит только свои лиды + ещё не назначенные (managerId пуст) — чтобы можно было взять в работу.
-  // Юрист/РОП/старший менеджер/админ видят все лиды.
-  const activeLeads = leads.filter(l => 
+  // Менеджер видит только свои лиды + лиды тех, кого сегодня замещает (фаза 5)
+  // + ещё не назначенные (managerId пуст) — чтобы можно было взять в работу.
+  // Юрист/старший менеджер/админ видят все лиды. РОП с назначенными отделами —
+  // только лиды сотрудников своих отделов (см. visibleManagerIds, Отделы фаза 1).
+  const activeLeads = leads.filter(l =>
     (l.type === 'LEAD' || !l.type) && l.status !== 'CONVERTED' &&
-    (canViewAllLeads || l.managerId === managerId || !l.managerId)
+    (
+      visibleManagerIds
+        ? (visibleManagerIds.includes(l.managerId) || !l.managerId)
+        : (canViewAllLeads || ownIds.includes(l.managerId) || !l.managerId)
+    )
   );
 
   const getFilteredLeads = (status: string) => {
@@ -754,6 +796,31 @@ export default function ClientManagementClient({ initialLeads, projects, organiz
       {/* Вкладка 1: ЛИДЫ (Список карточек с кнопками) */}
       {activeTab === 'leads' && (
         <>
+          {/* Пул отдела (Ролевая модель, фаза 3) — лиды, распределённые в отдел,
+              но без ответственного (правило MANUAL или некого назначить).
+              Контакт-центр видит весь пул для первичной квалификации. */}
+          {canClaimPool && pool.length > 0 && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '12px', padding: '14px 16px', marginBottom: '16px' }}>
+              <strong style={{ color: '#92400e', fontSize: '0.9rem' }}>Пул отдела: {pool.length} лид(ов) без ответственного</strong>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                {pool.map((lead: any) => (
+                  <div key={lead.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 14px' }}>
+                    <span style={{ fontSize: '0.85rem' }}>
+                      <strong>{lead.name}</strong> — {lead.phone}
+                      {lead.departmentName && <span style={{ color: '#92400e', marginLeft: '8px' }}>({lead.departmentName})</span>}
+                    </span>
+                    <button
+                      onClick={() => onClaimFromPool(lead.id)}
+                      style={{ background: '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', padding: '6px 14px', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}
+                    >
+                      Взять в работу
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Поиск для лидов */}
           <div className={styles.toolbar} style={{ marginBottom: '16px' }}>
             <div className={styles.searchWrapper}>
