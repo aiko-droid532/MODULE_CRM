@@ -31,17 +31,12 @@ const STAGES: { id: string; label: string; color: string; type: StageType; child
   { id: 'NEW_LEAD', label: 'Новый лид', color: '#6366f1', type: 'normal' },
   { id: 'CLARIFICATION', label: 'Обработанный лид', color: '#818cf8', type: 'normal' },
 
-  // "Распределён" — визуально перенесена до колл-центра по просьбе заказчика
-  { id: 'CONSULTATION', label: 'Распределён', color: '#f59e0b', type: 'normal' },
-
   // Колл-центр — три отдельные горизонтальные колонки
   { id: 'CALL', label: 'Коллцентр 1', color: '#3b82f6', type: 'normal' },
   { id: 'SECOND_CALL', label: 'Коллцентр 2', color: '#2563eb', type: 'normal' },
   { id: 'THIRD_CALL', label: 'Обработанный Звонок', color: '#1d4ed8', type: 'normal' },
 
-  // "Распределён" — визуально перенесена до колл-центра по просьбе заказчика
   { id: 'CONSULTATION', label: 'Распределён', color: '#f59e0b', type: 'normal' },
-
   { id: 'PRE_RESERVATION', label: '1-й звонок', color: '#fbbf24', type: 'normal' },
   { id: 'RESERVATION', label: '2-й звонок', color: '#f97316', type: 'normal' },
   { id: 'CONTRACT_PREPARATION', label: '3-й звонок', color: '#a855f7', type: 'normal' },
@@ -53,8 +48,8 @@ const STAGES: { id: string; label: string; color: string; type: StageType; child
   { id: 'WAITING_PAYMENT', label: 'Ожидание оплаты', color: '#ec4899', type: 'normal' },
 
   { id: 'SUCCESS', label: 'WON/Продано', color: '#15803d', type: 'normal' },
-  // FAILED и CANCELLED объединены в одну колонку "Junk" (бывш. "Cancelled")
-  { id: 'LOST_CANCELLED', label: 'Junk', color: '#94a3b8', type: 'group', children: ['FAILED', 'CANCELLED'] },
+  // FAILED и CANCELLED объединены в одну колонку "Cancelled"
+  { id: 'LOST_CANCELLED', label: 'Cancelled', color: '#94a3b8', type: 'group', children: ['FAILED', 'CANCELLED'] },
 ];
 
 // Порядковые номера статусов для проверки направления
@@ -64,7 +59,7 @@ const STATUS_ORDER: Record<string, number> = {
   CALL: 2,
   SECOND_CALL: 3,
   THIRD_CALL: 4,
-  CONSULTATION: 5,          // ← новый индекс
+  CONSULTATION: 5,
   PRE_RESERVATION: 6,
   RESERVATION: 7,
   CONTRACT_PREPARATION: 8,
@@ -80,7 +75,7 @@ const STATUS_ORDER: Record<string, number> = {
 };
 
 // Человекочитаемые названия статусов для Хронологии (DEA-029) — берём из STAGES,
-// сгруппированные FAILED/CANCELLED получают подпись своей группы ("Junk").
+// сгруппированные FAILED/CANCELLED получают подпись своей группы ("Cancelled").
 const DEAL_STATUS_LABELS: Record<string, string> = {};
 STAGES.forEach(s => {
   if (s.children) {
@@ -127,7 +122,7 @@ function isTransitionAllowed(from: string, to: string): { allowed: boolean; reas
     if (to === 'CANCELLED') {
       return { allowed: true };
     }
-    return { allowed: false, reason: 'Закрытую сделку можно переместить только в "Расторжение" (Junk)' };
+    return { allowed: false, reason: 'Закрытую сделку можно переместить только в "Расторжение" (Cancelled)' };
   }
 
   // Из остальных финальных статусов — никуда

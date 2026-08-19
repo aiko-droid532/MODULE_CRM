@@ -2788,10 +2788,10 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                   ))}
                 </select>
                 <p className={styles.fileHint} style={{ marginTop: '6px' }}>
-                  В файле заказчика нет колонки с названием ЖК — только корпус ("Building/Block", например "6A"). Все строки файла попадут в выбранный здесь ЖК; корпус возьмётся из файла и создастся автоматически, если его ещё нет.
+                  
                 </p>
               </div>
-              <div className={styles.modalDesc}>Загрузите файл Excel (.xlsx, .xls) с колонками:<br/><code>Building/Block, Floor, № Flat, Status, Rooms, Area (sq meters), ...</code> — как в отчёте заказчика (лист "Products"). Колонки "#" и "PTD" можно оставить как есть — они принимаются, но в базу не записываются.</div>
+              <div className={styles.modalDesc}>Загрузите файл Excel (.xlsx, .xls) с колонками:<br/><code>Building/Block, Floor, № Flat, Status, Rooms, Area (sq meters), ...</code> </div>
               <div className={`${styles.fileDropZone} ${importFile ? styles.dragActive : ''}`} onClick={() => document.getElementById('excelFileInput')?.click()}>
                 <div className={styles.fileIcon}>Файл</div>
                 <p><strong>Нажмите для выбора</strong> или перетащите файл</p>
@@ -2806,7 +2806,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                 </div>
               )}
               <div className={styles.formatExample}>
-                <h4>Пример формата Excel (все колонки, как в файле заказчика)</h4>
+                <h4>Пример формата Excel </h4>
                 <div style={{ overflowX: 'auto' }}>
                 <table className={styles.exampleTable}>
                   <thead><tr>
