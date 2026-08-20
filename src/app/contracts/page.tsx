@@ -5,7 +5,8 @@ import { verifyToken } from '@/lib/auth';
 import { getTemplates, getContractsList, getDealsForContract } from '@/app/actions/contracts';
 import { getVisibleManagerIds } from '@/app/actions/departments';
 import ContractsClient from './ContractsClient';
-import { extractRole, resolveEffectiveRole } from '@/lib/roles';
+import { extractRole } from '@/lib/roles';
+import { resolveEffectiveRole } from '@/lib/serverAuth';
 
 export default async function ContractsPage({
   searchParams,

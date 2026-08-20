@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
-import { extractRole, resolveEffectiveRole } from '@/lib/roles';
+import { extractRole } from '@/lib/roles';
+import { resolveEffectiveRole } from '@/lib/serverAuth';
 import { getDepartments, getManagersWithDepartment } from '@/app/actions/departments';
 import { getUnlinkedAccounts, getPendingManagerCards, getPermissionAuditLog } from '@/app/actions/accounts';
 import { getProjectsWithDepartment, getDistributionSettings } from '@/app/actions/leadDistribution';

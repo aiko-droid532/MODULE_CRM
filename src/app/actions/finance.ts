@@ -3,7 +3,8 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import * as XLSX from 'xlsx';
 import { revalidatePath } from 'next/cache';
-import { requireRole, canManageFinance } from '@/lib/roles';
+import { canManageFinance } from '@/lib/roles';
+import { requireRole } from '@/lib/serverAuth';
 
 // Получить импортированные банковские транзакции
 export async function getBankTransactions(organizationId: string) {

@@ -2,15 +2,8 @@
 
 import { db as prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import {
-  requireRole,
-  canManageDeals,
-  canViewAllDeals,
-  canApprovePromotions,
-  getCurrentManagerId,
-  getCurrentRole,
-  ForbiddenError,
-} from '@/lib/roles';
+import { canManageDeals, canViewAllDeals, canApprovePromotions } from '@/lib/roles';
+import { requireRole, getCurrentManagerId, getCurrentRole, ForbiddenError } from '@/lib/serverAuth';
 import { getVisibleManagerIds } from './departments';
 import type { DebtRowStatus } from '@/lib/debtStatus';
 

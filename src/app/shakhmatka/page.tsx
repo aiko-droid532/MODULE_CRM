@@ -5,7 +5,8 @@ import { verifyToken } from '@/lib/auth';
 import { getProjects } from '@/app/actions/units';
 import { getLeadsList, checkAndReleaseExpiredBookings } from '@/app/actions/booking';
 import ShakhmatkaClient from './ShakhmatkaClient';
-import { extractRole, resolveEffectiveRole } from '@/lib/roles';
+import { extractRole } from '@/lib/roles';
+import { resolveEffectiveRole } from '@/lib/serverAuth';
 
 export default async function ShakhmatkaPage({
   searchParams,

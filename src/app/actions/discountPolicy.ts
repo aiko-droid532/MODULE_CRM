@@ -7,7 +7,8 @@
 import { db as prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { requireRole, canManageSystem, DEFAULT_DISCOUNT_THRESHOLDS, UserRole } from '@/lib/roles';
+import { canManageSystem, DEFAULT_DISCOUNT_THRESHOLDS, UserRole } from '@/lib/roles';
+import { requireRole } from '@/lib/serverAuth';
 
 export async function initDiscountThresholdTable() {
   await prisma.$executeRaw`

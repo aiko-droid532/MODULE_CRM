@@ -4,7 +4,8 @@ import "./globals.css";
 import Layout from "@/components/Layout/Layout";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
-import { extractRole, resolveEffectiveRole } from "@/lib/roles";
+import { extractRole } from "@/lib/roles";
+import { resolveEffectiveRole } from "@/lib/serverAuth";
 import { ensureAccountTracked } from "@/app/actions/accounts";
 import { isManagerTerminated } from "@/app/actions/employeeLifecycle";
 

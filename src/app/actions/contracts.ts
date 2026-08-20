@@ -3,7 +3,8 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { requireRole, canManageContracts, canApproveContracts, canCommentContracts, canViewAllContracts, UserRole } from '@/lib/roles';
+import { canManageContracts, canApproveContracts, canCommentContracts, canViewAllContracts, UserRole } from '@/lib/roles';
+import { requireRole } from '@/lib/serverAuth';
 
 // Инициализация таблиц документооборота
 export async function initContractTables() {

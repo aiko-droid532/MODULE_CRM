@@ -4,7 +4,8 @@ import { getDeals } from '@/app/actions/deals';
 import { getVisibleManagerIds } from '@/app/actions/departments';
 import { getEffectiveManagerIds } from '@/app/actions/employeeLifecycle';
 import DealsClient from './DealsClient';
-import { extractRole, resolveEffectiveRole } from '@/lib/roles';
+import { extractRole } from '@/lib/roles';
+import { resolveEffectiveRole } from '@/lib/serverAuth';
 
 export default async function DealsPage({
   searchParams,

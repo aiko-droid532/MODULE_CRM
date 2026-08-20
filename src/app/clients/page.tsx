@@ -6,7 +6,8 @@ import { getVisibleManagerIds, getVisibleDepartmentIds } from '@/app/actions/dep
 import { escalateExpiredLeads, getDepartmentPool } from '@/app/actions/leadDistribution';
 import { getEffectiveManagerIds } from '@/app/actions/employeeLifecycle';
 import ClientManagementClient from './ClientManagementClient';
-import { extractRole, resolveEffectiveRole } from '@/lib/roles';
+import { extractRole } from '@/lib/roles';
+import { resolveEffectiveRole } from '@/lib/serverAuth';
 
 export const dynamic = 'force-dynamic';
 

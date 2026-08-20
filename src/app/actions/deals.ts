@@ -2,7 +2,8 @@
 
 import { db as prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import { requireRole, canManageDeals, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
+import { canManageDeals, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
+import { requireRole } from '@/lib/serverAuth';
 import { calcPromoPrice } from '@/lib/promotionCalculator';
 
 // Человеко-читаемый номер сделки: "ДД.ММ.ГГ/N", где N — порядковый номер сделки,

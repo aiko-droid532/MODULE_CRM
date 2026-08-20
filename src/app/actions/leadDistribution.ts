@@ -21,7 +21,8 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { requireRole, canManageSystem, getCurrentManagerId, UserRole } from '@/lib/roles';
+import { canManageSystem, UserRole } from '@/lib/roles';
+import { requireRole, getCurrentManagerId } from '@/lib/serverAuth';
 import { initDepartmentTables } from './departments';
 import { createNotification } from './notifications';
 

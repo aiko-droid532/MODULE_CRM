@@ -19,7 +19,8 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { requireRole, canManageDepartments, canAssignDepartmentMembership, getCurrentManagerId, UserRole } from '@/lib/roles';
+import { canManageDepartments, canAssignDepartmentMembership, UserRole } from '@/lib/roles';
+import { requireRole, getCurrentManagerId } from '@/lib/serverAuth';
 
 // Лениво создаём таблицы/колонки при первом обращении — в проекте нет доступа
 // к БД для отдельных миграций (см. остальные *.ts в actions/ — тот же приём).

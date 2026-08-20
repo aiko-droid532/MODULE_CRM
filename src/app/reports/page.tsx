@@ -37,7 +37,8 @@ import {
 import { getExchangeRate } from '@/app/actions/exchange';
 import ReportsClient from './ReportsClient';
 
-import { extractRole, resolveEffectiveRole, canViewReports } from '@/lib/roles';
+import { extractRole, canViewReports } from '@/lib/roles';
+import { resolveEffectiveRole } from '@/lib/serverAuth';
 
 export const dynamic = 'force-dynamic';
 

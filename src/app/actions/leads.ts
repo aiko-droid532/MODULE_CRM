@@ -3,7 +3,8 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { requireRole, canManageDeals, canManageUnits, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
+import { canManageDeals, canManageUnits, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
+import { requireRole } from '@/lib/serverAuth';
 import { generateDealNumber } from './deals';
 
 export async function createClient(formData: {

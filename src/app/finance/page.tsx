@@ -3,7 +3,8 @@ import { verifyToken } from '@/lib/auth';
 import { getBankTransactions, getPendingSchedules } from '@/app/actions/finance';
 import { getVisibleManagerIds } from '@/app/actions/departments';
 import FinanceClient from './FinanceClient';
-import { extractRole, resolveEffectiveRole } from '@/lib/roles';
+import { extractRole } from '@/lib/roles';
+import { resolveEffectiveRole } from '@/lib/serverAuth';
 
 export const dynamic = 'force-dynamic';
 

@@ -28,16 +28,14 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import {
-  requireRole,
-  canManageSystem,
-  getCurrentManagerId,
-  UserRole,
-} from '@/lib/roles';
+import { canManageSystem, UserRole } from '@/lib/roles';
+import { requireRole, getCurrentManagerId } from '@/lib/serverAuth';
 import { initDepartmentTables } from './departments';
 // Примечание: resolveEffectiveRole (CRM-роль с приоритетом над токеном)
-// физически определена в @/lib/roles — импортируйте её оттуда напрямую в
-// page.tsx, чтобы не создавать цикл импортов между roles.ts и accounts.ts.
+// физически определена в @/lib/serverAuth — импортируйте её оттуда напрямую в
+// page.tsx/layout.tsx. Она не может жить в @/lib/roles, потому что roles.ts
+// импортируется прямо из клиентских *Client.tsx — любая ссылка там на
+// @/lib/db заставляет webpack тащить 'pg' в браузерный бандл и валит сборку.
 
 export async function initAccountTables() {
   await initDepartmentTables();

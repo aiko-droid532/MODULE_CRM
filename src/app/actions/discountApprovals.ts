@@ -2,7 +2,8 @@
 
 import { db as prisma } from '@/lib/db';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
-import { requireRole, canApprovePromotions, getCurrentManagerId } from '@/lib/roles';
+import { canApprovePromotions } from '@/lib/roles';
+import { requireRole, getCurrentManagerId } from '@/lib/serverAuth';
 import { createNotification } from './notifications';
 
 // Согласование скидки менеджера (Этап 2.1, уточнённая версия):
