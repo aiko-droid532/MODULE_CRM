@@ -23,13 +23,16 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 // ─── Навигация ────────────────────────────────────────────────────────────────
 // Список разделов которые роль может видеть в меню
 export const NAV_ACCESS: Record<UserRole, string[]> = {
-  admin:          ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts'],
-  rop:            ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts'],
+  admin:          ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts', 'departments'],
+  rop:            ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports', 'debts', 'departments'],
   senior_manager: ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'debts'],
   manager:        ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'debts'],
   lawyer:         ['analytics', 'clients', 'deals', 'shakhmatka', 'pricing', 'contracts', 'finance', 'reports'],
   marketing:      ['analytics'],
-  call_center:    ['analytics'],
+  // call_center получает доступ к разделу "Клиенты" (пул нераспределённых
+  // лидов, первичная квалификация) — Ролевая модель, фаза 3, TO-BE "Работа
+  // маркетинга"/"Распределение входящего лида". Раньше был фактически исключён.
+  call_center:    ['analytics', 'clients'],
 };
 
 // ─── Права ────────────────────────────────────────────────────────────────────
@@ -49,7 +52,15 @@ export function canManagePrices(role: UserRole): boolean {
 // В оригинальном ТЗ пороги завязаны на Back-office/Топ-менеджмент/Совет директоров,
 // которых в нашей ролевой модели нет — согласовано, что маппим по нарастающей:
 // manager → senior_manager → rop → admin.
-const DISCOUNT_THRESHOLDS: Record<UserRole, number> = {
+//
+// Ролевая модель, фаза 4 (BR-B05): "Порог самостоятельной скидки — параметр
+// коммерческой политики, а не свойство программы" — эти значения теперь только
+// ДЕФОЛТ для организаций, которые ещё не настроили свои пороги через интерфейс
+// (см. actions/discountPolicy.ts, /departments). Функции ниже принимают
+// необязательный параметр thresholds — передавайте туда результат
+// getDiscountThresholds(organizationId), если он уже загружен; без него
+// поведение остаётся ровно таким же, как было до фазы 4.
+export const DEFAULT_DISCOUNT_THRESHOLDS: Record<UserRole, number> = {
   manager: 3,
   senior_manager: 5,
   rop: 10,
@@ -60,23 +71,24 @@ const DISCOUNT_THRESHOLDS: Record<UserRole, number> = {
 };
 
 // Максимальный % скидки, который роль может сохранить самостоятельно
-export function getMaxDiscountPercent(role: UserRole): number {
-  return DISCOUNT_THRESHOLDS[role] ?? 0;
+export function getMaxDiscountPercent(role: UserRole, thresholds?: Record<string, number>): number {
+  const table = thresholds || DEFAULT_DISCOUNT_THRESHOLDS;
+  return table[role] ?? 0;
 }
 
 // Может ли роль сохранить скидку данного размера (в %) без дополнительного согласования
-export function canApplyDiscountPercent(role: UserRole, percent: number): boolean {
-  return percent <= getMaxDiscountPercent(role);
+export function canApplyDiscountPercent(role: UserRole, percent: number, thresholds?: Record<string, number>): boolean {
+  return percent <= getMaxDiscountPercent(role, thresholds);
 }
 
 // Кто должен согласовать скидку такого размера — для текста подсказки в интерфейсе.
 // Реально согласовать заявку (approveDiscountRequest/rejectDiscountRequest) может только
 // роль с canApprovePromotions (rop/admin) — senior_manager кнопки согласования не видит
 // и провести согласование не может, поэтому "Старший менеджер" как отдельная ступень
-// здесь не указывается, чтобы не вводить в заблуждение (границы берём из DISCOUNT_THRESHOLDS).
-export function getRequiredApproverLabel(percent: number): string {
-  if (percent <= getMaxDiscountPercent('manager')) return 'Менеджер';
-  if (percent <= getMaxDiscountPercent('rop')) return 'Руководитель ОП';
+// здесь не указывается, чтобы не вводить в заблуждение (границы берём из thresholds).
+export function getRequiredApproverLabel(percent: number, thresholds?: Record<string, number>): string {
+  if (percent <= getMaxDiscountPercent('manager', thresholds)) return 'Менеджер';
+  if (percent <= getMaxDiscountPercent('rop', thresholds)) return 'Руководитель ОП';
   return 'Администратор';
 }
 
@@ -145,6 +157,20 @@ export function canManageSystem(role: UserRole): boolean {
   return role === 'admin';
 }
 
+// ─── Отделы (Ролевая модель) ──────────────────────────────────────────────────
+
+// Создание/переименование/удаление отдела, назначение руководителя отдела —
+// только администратор (RACI: "Создание отдела" R,A = Админ).
+export function canManageDepartments(role: UserRole): boolean {
+  return role === 'admin';
+}
+
+// Включение сотрудника в отдел / перевод между отделами — РОП или администратор
+// (RACI: "Включение сотрудника в отдел" R,A = РОП, R = Админ).
+export function canAssignDepartmentMembership(role: UserRole): boolean {
+  return ['admin', 'rop'].includes(role);
+}
+
 // ─── Утилиты ──────────────────────────────────────────────────────────────────
 
 // Парсим роль из JWT payload (app_metadata.role)
@@ -167,57 +193,11 @@ export function hasNavAccess(role: UserRole, section: string): boolean {
   return NAV_ACCESS[role]?.includes(section) ?? false;
 }
 
-// ─── Серверная авторизация (для server actions) ────────────────────────────
-// ВАЖНО: канбан-кнопки на фронтенде — это только UI. Реальная защита
-// server actions (createDeal, updateLeadStatus, massUpdatePrices и т.д.)
-// должна происходить здесь, потому что server action — это обычный
-// сетевой эндпоинт, который можно вызвать напрямую в обход кнопок.
-
-export class ForbiddenError extends Error {
-  constructor(action: string) {
-    super(`Доступ запрещён: недостаточно прав для действия "${action}"`);
-    this.name = 'ForbiddenError';
-  }
-}
-
-// Достаёт роль текущего пользователя из cookie auth_token (только для server actions/'use server' файлов)
-export async function getCurrentRole(): Promise<UserRole> {
-  const { cookies } = await import('next/headers');
-  const { verifyToken } = await import('./auth');
-
-  const token = cookies().get('auth_token')?.value;
-  if (!token) return 'manager'; // дефолт как и в extractRole — минимальные права
-
-  const { payload } = await verifyToken(token);
-  if (!payload) return 'manager';
-
-  return extractRole(payload);
-}
-
-// Достаёт id текущего пользователя (payload.sub) — для записи managerId в AuditLog и т.п.
-export async function getCurrentManagerId(): Promise<string> {
-  const { cookies } = await import('next/headers');
-  const { verifyToken } = await import('./auth');
-
-  const token = cookies().get('auth_token')?.value;
-  if (!token) return 'system';
-
-  const { payload } = await verifyToken(token);
-  if (!payload || typeof payload === 'string') return 'system';
-
-  return (payload.sub as string) || 'system';
-}
-
-// Бросает ForbiddenError, если роль не проходит проверку check().
-// Использование внутри server action:
-//   const role = await requireRole(canManageDeals, 'изменение статуса лида');
-export async function requireRole(
-  check: (role: UserRole) => boolean,
-  actionLabel: string
-): Promise<UserRole> {
-  const role = await getCurrentRole();
-  if (!check(role)) {
-    throw new ForbiddenError(actionLabel);
-  }
-  return role;
-}
+// ─── Серверная авторизация ──────────────────────────────────────────────────
+// ForbiddenError, requireRole, getCurrentRole, getCurrentManagerId,
+// resolveEffectiveRole переехали в lib/serverAuth.ts — этот файл (roles.ts)
+// импортируется НАПРЯМУЮ из клиентских *Client.tsx компонентов (canManageDeals,
+// UserRole и т.п.), и любая ссылка на @/lib/db здесь (даже динамический
+// import внутри неиспользуемой на клиенте функции) заставляет webpack
+// пытаться собрать пакет 'pg' в браузерный бандл — сборка падает на
+// fs/net/tls/dns. См. серверный файл для деталей и импортируйте оттуда.

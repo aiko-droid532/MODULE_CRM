@@ -15,14 +15,18 @@ import { canViewAllFinance, canManageFinance, isReadOnly, UserRole } from '@/lib
 interface FinanceClientProps {
   initialTransactions: any[];
   initialSchedules: any[];
+  // Отделы (Ролевая модель, фаза 1): null — без ограничений, массив — РОП видит
+  // только данные сотрудников своих отделов (см. пояснение в DealsClientProps).
+  visibleManagerIds?: string[] | null;
   organizationId: string;
   userRole?: string;
   managerId?: string;
 }
 
-export default function FinanceClient({ 
-  initialTransactions, 
-  initialSchedules, 
+export default function FinanceClient({
+  initialTransactions,
+  initialSchedules,
+  visibleManagerIds = null,
   organizationId,
   userRole = 'manager',
   managerId = ''
@@ -32,12 +36,13 @@ export default function FinanceClient({
   const canManage = canManageFinance(role);
   const readOnly = isReadOnly(role);
 
-  // Менеджер видит только транзакции и платежи по своим договорам
+  // Менеджер видит только транзакции и платежи по своим договорам.
+  // РОП с отделами — только по сотрудникам своего отдела.
   const roleFilteredTransactions = canViewAll
-    ? initialTransactions
+    ? (visibleManagerIds ? initialTransactions.filter(t => visibleManagerIds.includes(t.managerId) || !t.managerId) : initialTransactions)
     : initialTransactions.filter(t => t.managerId === managerId || !t.managerId);
   const roleFilteredSchedules = canViewAll
-    ? initialSchedules
+    ? (visibleManagerIds ? initialSchedules.filter(s => visibleManagerIds.includes(s.managerId) || !s.managerId) : initialSchedules)
     : initialSchedules.filter(s => s.managerId === managerId || !s.managerId);
 
   const [transactions, setTransactions] = useState(roleFilteredTransactions);

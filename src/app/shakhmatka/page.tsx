@@ -6,6 +6,7 @@ import { getProjects } from '@/app/actions/units';
 import { getLeadsList, checkAndReleaseExpiredBookings } from '@/app/actions/booking';
 import ShakhmatkaClient from './ShakhmatkaClient';
 import { extractRole } from '@/lib/roles';
+import { resolveEffectiveRole } from '@/lib/serverAuth';
 
 export default async function ShakhmatkaPage({
   searchParams,
@@ -26,6 +27,7 @@ export default async function ShakhmatkaPage({
         organizationId = ((payload as any).app_metadata?.organization_id as string) || '741be209-ad6f-4483-92ee-298a36899bcf';
         userRole = extractRole(payload);
         managerId = (payload.sub as string) || '';
+        userRole = await resolveEffectiveRole(userRole as any, managerId);
       }
     } catch (e) {
       console.error('Token verification failed:', e);

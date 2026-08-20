@@ -3,7 +3,8 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { requireRole, canCreatePromotions, canApprovePromotions, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel } from '@/lib/roles';
+import { canCreatePromotions, canApprovePromotions, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel } from '@/lib/roles';
+import { requireRole } from '@/lib/serverAuth';
 import { formatEffectSummary, calcPromoPrice } from '@/lib/promotionCalculator';
 
 // Таблицы: "Promotion" (сама акция) и "PromotionUnit" (связующая, аналог их flat_promotions).
