@@ -2,9 +2,15 @@
 
 import { db as prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import { canManageDeals, canViewAllDeals, canApprovePromotions } from '@/lib/roles';
-import { requireRole, getCurrentManagerId, getCurrentRole, ForbiddenError } from '@/lib/serverAuth';
-import { getVisibleManagerIds } from './departments';
+import {
+  requireRole,
+  canManageDeals,
+  canViewAllDeals,
+  canApprovePromotions,
+  getCurrentManagerId,
+  getCurrentRole,
+  ForbiddenError,
+} from '@/lib/roles';
 import type { DebtRowStatus } from '@/lib/debtStatus';
 
 const DEFAULT_GRACE_PERIOD_DAYS = 5;
@@ -182,9 +188,6 @@ export async function getDebtRegistry(organizationId: string) {
     const role = await requireRole(canManageDeals, 'просмотр реестра задолженности');
     const myManagerId = await getCurrentManagerId();
     const seeAll = canViewAllDeals(role);
-    // Отделы (Ролевая модель, фаза 1): у РОП с назначенными отделами seeAll всё
-    // так же true, но видимость дополнительно сужается до его отделов.
-    const visibleManagerIds = await getVisibleManagerIds(role, myManagerId, organizationId);
 
     const rows: any[] = await prisma.$queryRaw`
       SELECT
@@ -223,7 +226,7 @@ export async function getDebtRegistry(organizationId: string) {
     const now = new Date();
 
     return rows
-      .filter(r => visibleManagerIds ? visibleManagerIds.includes(r.managerId) : (seeAll || r.managerId === myManagerId))
+      .filter(r => seeAll || r.managerId === myManagerId)
       .map(r => mapDebtRow(r, defaultGrace, now))
       .filter(activeOrHistoricalDebtRow);
   } catch (error) {

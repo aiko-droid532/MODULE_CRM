@@ -22,7 +22,6 @@ import { getDebtRowsForLead } from "@/app/actions/debts";
 import { DEBT_STATUS_LABELS } from "@/lib/debtStatus";
 import { calcPromoPrice, formatEffectSummary } from "@/lib/promotionCalculator";
 import { canManageDeals, isReadOnly, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel, UserRole } from "@/lib/roles";
-import { getDiscountThresholds } from "@/app/actions/discountPolicy";
 import {
   calculateInstallmentPlan,
   applyCumulativeDiscount,
@@ -79,13 +78,6 @@ export default function LeadDossier({
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [phoneRevealed, setPhoneRevealed] = useState(false);
-
-  // Пороги согласования скидки — настройка организации (Ролевая модель, фаза 4,
-  // BR-B05), не хардкод. Пока не загрузились — используются дефолты.
-  const [discountThresholds, setDiscountThresholds] = useState<Record<string, number> | undefined>(undefined);
-  useEffect(() => {
-    getDiscountThresholds(organizationId).then(setDiscountThresholds).catch(() => {});
-  }, [organizationId]);
 
   const [isEditing, setIsEditing] = useState(false);
   const [noteText, setNoteText] = useState(initialLead.managerNotes || "");
@@ -359,7 +351,7 @@ export default function LeadDossier({
   const calcCombinedDiscountPercent = Math.round((calcPromoDiscountPercent + calcDiscountPercent + calcCumulativePercent) * 10) / 10;
   // Менеджер: любая скидка уходит на согласование РОП, а не сохраняется напрямую —
   // порог его роли не должен блокировать кнопку (иначе отправить на согласование нечем).
-  const calcDiscountAllowed = role === 'manager' ? true : canApplyDiscountPercent(role, calcCombinedDiscountPercent, discountThresholds);
+  const calcDiscountAllowed = role === 'manager' ? true : canApplyDiscountPercent(role, calcCombinedDiscountPercent);
   const calcAutoDates = computeAutoScheduleDates(calcFirstPaymentDate, calcEffectiveDeliveryDate);
   const calcMonthsCount = Math.max(1, calcPeriodsCount(calcAutoDates.scheduleStartDate, calcAutoDates.scheduleEndDate, calcPeriodicity));
   // Стандартный тип выбран, но дата первого взноса ещё не указана — поля % показывают
@@ -1695,7 +1687,7 @@ export default function LeadDossier({
                                 ? " — будет отправлена на согласование руководителю ОП."
                                 : calcDiscountAllowed
                                   ? " — в пределах вашего порога согласования."
-                                  : ` — превышает ваш порог (до ${getMaxDiscountPercent(role, discountThresholds)}%). Нужно согласование: ${getRequiredApproverLabel(calcCombinedDiscountPercent, discountThresholds)}.`}
+                                  : ` — превышает ваш порог (до ${getMaxDiscountPercent(role)}%). Нужно согласование: ${getRequiredApproverLabel(calcCombinedDiscountPercent)}.`}
                             </div>
                           )}
 
@@ -1790,7 +1782,7 @@ export default function LeadDossier({
                               className={styles.saveScheduleBtn}
                               onClick={handleSaveSchedule}
                               disabled={!calcDiscountAllowed}
-                              title={!calcDiscountAllowed ? `Суммарная скидка ${calcCombinedDiscountPercent}% требует согласования: ${getRequiredApproverLabel(calcCombinedDiscountPercent, discountThresholds)}` : undefined}
+                              title={!calcDiscountAllowed ? `Суммарная скидка ${calcCombinedDiscountPercent}% требует согласования: ${getRequiredApproverLabel(calcCombinedDiscountPercent)}` : undefined}
                             >
                               Сохранить расчет
                             </button>

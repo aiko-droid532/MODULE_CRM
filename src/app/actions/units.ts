@@ -3,8 +3,7 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { canManageUnits, canManagePrices } from '@/lib/roles';
-import { requireRole } from '@/lib/serverAuth';
+import { requireRole, canManageUnits, canManagePrices } from '@/lib/roles';
 
 // Получить все проекты организации
 export async function getProjects(organizationId: string) {

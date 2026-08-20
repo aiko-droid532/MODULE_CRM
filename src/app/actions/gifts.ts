@@ -2,8 +2,7 @@
 
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
-import { canManageDeals } from '@/lib/roles';
-import { requireRole } from '@/lib/serverAuth';
+import { requireRole, canManageDeals } from '@/lib/roles';
 
 // Модуль "Подарки" (Этап 2.3): немонетарный бонус (свободный текст, фиксируется на сделке)
 // либо конкретный паркинг/кладовая из каталога — с запретом двойного использования

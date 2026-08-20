@@ -2,8 +2,7 @@
 
 import { db as prisma } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import { canManageDeals, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
-import { requireRole } from '@/lib/serverAuth';
+import { requireRole, canManageDeals, canApplyDiscountPercent, canApprovePromotions } from '@/lib/roles';
 import { calcPromoPrice } from '@/lib/promotionCalculator';
 
 // Человеко-читаемый номер сделки: "ДД.ММ.ГГ/N", где N — порядковый номер сделки,
@@ -904,13 +903,8 @@ export async function saveInstallmentPlanAction(data: {
     // б) суммарный эффект (акция + индивидуальная + накопительная) выше СОБСТВЕННОГО порога роли —
     //    иначе применение уже одобренной при создании крупной акции без всякой доп.скидки было бы
     //    вообще несохраняемым для всех ролей кроме admin.
-    // Пороги — настройка коммерческой политики организации (BR-B05), а не
-    // хардкод в коде (Ролевая модель, фаза 4).
-    const { getDiscountThresholds } = await import('./discountPolicy');
-    const thresholds = await getDiscountThresholds(data.organizationId);
-
     const needsApproval = (role === 'manager' && discountPercent > 0)
-      || (combinedDiscountPercent > 0 && !canApplyDiscountPercent(role, combinedDiscountPercent, thresholds));
+      || (combinedDiscountPercent > 0 && !canApplyDiscountPercent(role, combinedDiscountPercent));
 
     if (needsApproval) {
       const { submitDiscountApprovalRequest } = await import('./discountApprovals');
@@ -921,7 +915,6 @@ export async function saveInstallmentPlanAction(data: {
         proposedDiscountPercent: combinedDiscountPercent,
         submittedById: data.initiatorId || '',
         organizationId: data.organizationId,
-        thresholdAtSubmission: thresholds[role] ?? 0,
       });
       if (!reqRes.success) {
         return { success: false, error: 'Не удалось отправить скидку на согласование' };

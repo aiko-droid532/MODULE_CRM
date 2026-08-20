@@ -32,7 +32,6 @@ const NAV_ITEMS = [
   { name: 'Финансы',              path: '/finance',      icon: <FinanceIcon />,   section: 'finance'    },
   { name: 'Задолженность',        path: '/debts',        icon: <FinanceIcon />,   section: 'debts'      },
   { name: 'Отчеты',               path: '/reports',      icon: <ReportsIcon />,   section: 'reports'    },
-  { name: 'Отделы',               path: '/departments',  icon: <ClientsIcon />,   section: 'departments'},
   { name: 'Интеграция Georgia',    path: '/integration',  icon: <AnalyticsIcon />, section: 'analytics'  },
 ];
 

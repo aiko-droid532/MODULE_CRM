@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import { extractRole } from '@/lib/roles';
-import { resolveEffectiveRole } from '@/lib/serverAuth';
 import { getDebtRegistry, getExemptionReasons, getGracePeriodDays, getDebtAuditSample } from '@/app/actions/debts';
 import DebtsClient from './DebtsClient';
 
@@ -26,7 +25,6 @@ export default async function DebtsPage({
         organizationId = ((payload as any).app_metadata?.organization_id as string) || '741be209-ad6f-4483-92ee-298a36899bcf';
         userRole = extractRole(payload);
         managerId = (payload.sub as string) || '';
-        userRole = await resolveEffectiveRole(userRole as any, managerId);
       }
     } catch (e) {
       console.error('Token verification failed:', e);

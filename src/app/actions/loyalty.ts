@@ -2,8 +2,7 @@
 
 import { db as prisma } from '@/lib/db';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
-import { canApprovePromotions } from '@/lib/roles';
-import { requireRole } from '@/lib/serverAuth';
+import { requireRole, canApprovePromotions } from '@/lib/roles';
 
 // Модуль "Накопительная скидка" (Этап 2.2) — каркас.
 // Уровни настраиваются вручную (админ/РОП), реальные % пока не заданы заказчиком —

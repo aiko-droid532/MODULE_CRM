@@ -32,7 +32,6 @@ import {
 } from '@/lib/installmentCalculator';
 
 import { canManageUnits, canManagePrices, canManageDeals, isReadOnly, canApplyDiscountPercent, getMaxDiscountPercent, getRequiredApproverLabel, UserRole } from '@/lib/roles';
-import { getDiscountThresholds } from '@/app/actions/discountPolicy';
 
 interface ShakhmatkaClientProps {
   projects: any[];
@@ -244,14 +243,6 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
     }
     loadExchangeRate();
   }, []);
-
-  // Пороги согласования скидки — теперь настройка организации (Ролевая модель,
-  // фаза 4, BR-B05), а не хардкод. Пока не загрузились — используем дефолты
-  // (см. getMaxDiscountPercent/canApplyDiscountPercent без thresholds).
-  const [discountThresholds, setDiscountThresholds] = useState<Record<string, number> | undefined>(undefined);
-  useEffect(() => {
-    getDiscountThresholds(organizationId).then(setDiscountThresholds).catch(() => {});
-  }, [organizationId]);
 
   // Синхронизация локального стейта при изменении пропсов (например, после router.refresh())
   useEffect(() => {
@@ -540,7 +531,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
   const calcCombinedDiscountPercent = Math.round((calcPromoDiscountPercent + calcDiscountPercent + calcCumulativePercent) * 10) / 10;
   // Менеджер: любая скидка уходит на согласование РОП, а не сохраняется напрямую —
   // порог его роли не должен блокировать кнопку (иначе отправить на согласование нечем).
-  const calcDiscountAllowed = role === 'manager' ? true : canApplyDiscountPercent(role, calcCombinedDiscountPercent, discountThresholds);
+  const calcDiscountAllowed = role === 'manager' ? true : canApplyDiscountPercent(role, calcCombinedDiscountPercent);
   const calcAutoDates = computeAutoScheduleDates(calcFirstPaymentDate, calcEffectiveDeliveryDate);
   const calcMonthsCount = Math.max(1, calcPeriodsCount(calcAutoDates.scheduleStartDate, calcAutoDates.scheduleEndDate, calcPeriodicity));
   // Стандартный тип выбран, но дата первого взноса ещё не указана — поля % показывают
@@ -2577,7 +2568,7 @@ export default function ShakhmatkaClient({ projects: initialProjects, leads, org
                                 ? ' — будет отправлена на согласование руководителю ОП.'
                                 : calcDiscountAllowed
                                   ? ' — в пределах вашего порога согласования.'
-                                  : ` — превышает ваш порог (до ${getMaxDiscountPercent(role, discountThresholds)}%). Требуется согласование: ${getRequiredApproverLabel(calcCombinedDiscountPercent, discountThresholds)}.`}
+                                  : ` — превышает ваш порог (до ${getMaxDiscountPercent(role)}%). Требуется согласование: ${getRequiredApproverLabel(calcCombinedDiscountPercent)}.`}
                             </div>
                           )}
                         </div>

@@ -3,8 +3,7 @@
 import { db as prisma, Prisma } from '@/lib/db';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
 import { logAction } from '@/lib/logger';
-import { canManageContracts, canApproveContracts, canCommentContracts, canViewAllContracts, UserRole } from '@/lib/roles';
-import { requireRole } from '@/lib/serverAuth';
+import { requireRole, canManageContracts, canApproveContracts, canCommentContracts, canViewAllContracts, UserRole } from '@/lib/roles';
 
 // Инициализация таблиц документооборота
 export async function initContractTables() {
@@ -171,20 +170,15 @@ export async function createTemplate(data: {
 }
 
 // Загрузка списка договоров
-export async function getContractsList(organizationId: string, userRole?: string, managerId?: string, visibleManagerIds?: string[] | null) {
+export async function getContractsList(organizationId: string, userRole?: string, managerId?: string) {
   noStore();
   await initContractTables();
   try {
     const role = (userRole || 'manager') as UserRole;
     const viewAll = canViewAllContracts(role);
-    // Отделы (Ролевая модель, фаза 1): у РОП с назначенными отделами viewAll всё
-    // так же true, но видимость дополнительно сужается до сотрудников его отделов.
-    const scopeFilter = viewAll
-      ? (visibleManagerIds ? Prisma.sql`AND d."managerId" IN (${Prisma.join(visibleManagerIds)})` : Prisma.empty)
-      : Prisma.sql`AND d."managerId" = ${managerId || ''}`;
 
     const list: any[] = await prisma.$queryRaw`
-      SELECT
+      SELECT 
         c.*,
         t.name as "templateName",
         t.type as "templateType",
@@ -205,7 +199,7 @@ export async function getContractsList(organizationId: string, userRole?: string
       LEFT JOIN "Block" b ON u."blockId" = b.id
       LEFT JOIN "Project" p ON b."projectId" = p.id
       WHERE c."organizationId" = ${organizationId}
-        ${scopeFilter}
+        ${viewAll ? Prisma.empty : Prisma.sql`AND d."managerId" = ${managerId || ''}`}
       ORDER BY c."createdAt" DESC
     `;
     return list;
@@ -216,17 +210,14 @@ export async function getContractsList(organizationId: string, userRole?: string
 }
 
 // Загрузка сделок для выбора в форме
-export async function getDealsForContract(organizationId: string, userRole?: string, managerId?: string, visibleManagerIds?: string[] | null) {
+export async function getDealsForContract(organizationId: string, userRole?: string, managerId?: string) {
   noStore();
   try {
     const role = (userRole || 'manager') as UserRole;
     const viewAll = canViewAllContracts(role);
-    const scopeFilter = viewAll
-      ? (visibleManagerIds ? Prisma.sql`AND d."managerId" IN (${Prisma.join(visibleManagerIds)})` : Prisma.empty)
-      : Prisma.sql`AND d."managerId" = ${managerId || ''}`;
 
     const deals: any[] = await prisma.$queryRaw`
-      SELECT
+      SELECT 
         d.id,
         d."totalAmount",
         l.name as "clientName",
@@ -238,7 +229,7 @@ export async function getDealsForContract(organizationId: string, userRole?: str
       LEFT JOIN "Block" b ON u."blockId" = b.id
       LEFT JOIN "Project" p ON b."projectId" = p.id
       WHERE d."organizationId" = ${organizationId} AND d.status != 'CANCELLED'
-        ${scopeFilter}
+        ${viewAll ? Prisma.empty : Prisma.sql`AND d."managerId" = ${managerId || ''}`}
       ORDER BY d."createdAt" DESC
     `;
     return deals;
