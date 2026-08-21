@@ -129,7 +129,7 @@ export async function getManagersWithDepartment(organizationId: string) {
   }
 }
 
-// Создание отдела — только администратор (RACI: "Создание отдела" R,A = Админ).
+// Создание отдела — администратор или РОП (см. canManageDepartments в roles.ts).
 export async function createDepartment(name: string, organizationId: string, initiatorId: string) {
   await initDepartmentTables();
   try {

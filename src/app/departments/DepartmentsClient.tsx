@@ -178,7 +178,7 @@ export default function DepartmentsClient({
 }: Props) {
   const router = useRouter();
   const role = userRole as UserRole;
-  const canManage = canManageDepartments(role); // создание/переименование/удаление отдела, руководители — только админ
+  const canManage = canManageDepartments(role); // создание/переименование/удаление отдела, руководители — админ или РОП
   const canAssign = canAssignDepartmentMembership(role); // включение сотрудника в отдел — админ или РОП
   const canCreateCard = role === 'admin' || role === 'rop'; // "Создание карточки сотрудника"
   const canLinkAndAssignRole = canManageSystem(role); // "Связывание учётки" и "Назначение роли" — только админ

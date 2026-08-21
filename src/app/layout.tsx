@@ -60,14 +60,21 @@ export default async function RootLayout({
     } catch (e) {}
   }
 
-  // "Админ по умолчанию, без настройки": userRole учитывает CRM-роль
+  // "Админ/РОП по умолчанию, без настройки": userRole учитывает CRM-роль
   // (Manager.role), которая ИМЕЕТ ПРИОРИТЕТ над токеном — если эта строка в
   // нашей БД случайно испортится (ровно так и произошло в инциденте с
-  // блокировкой), userRole перестанет быть 'admin', хотя внешний токен
+  // блокировкой), userRole перестанет быть верной, хотя внешний токен
   // (ERP/Supabase, подписан, наша БД на него не влияет) продолжает верно
-  // называть человека админом. Поэтому здесь проверяем ОБА источника —
-  // человек считается админом, если так говорит хотя бы один из них.
+  // называть роль человека. Поэтому здесь проверяем ОБА источника — роль
+  // считается подтверждённой, если так говорит хотя бы один из них.
+  //
+  // РОП — исключение наравне с админом: именно РОП, а не админ, реально
+  // заводит и наполняет отделы через /departments (задача РОПа по ТЗ), так
+  // что застрять за одним из экранов ниже ему нельзя ровно по той же
+  // причине, что и админу.
   const isAdmin = jwtRole === 'admin' || userRole === 'admin';
+  const isRop = jwtRole === 'rop' || userRole === 'rop';
+  const bypassesAccessGates = isAdmin || isRop;
 
   // Аварийный обход для случаев, когда и токен не задан/не про того человека
   // (например, работаем от имени HR/другого лица) — список id/email в
@@ -79,13 +86,13 @@ export default async function RootLayout({
     (!!managerId && superAdminIds.includes(managerId)) ||
     (!!claimedEmail && superAdminEmails.includes(claimedEmail.toLowerCase()));
 
-  // BR-B07: доступ прекращается в момент увольнения. Админ теперь тоже
+  // BR-B07: доступ прекращается в момент увольнения. Админ и РОП — теперь
   // исключение (симметрично гейту "не привязан" ниже) — блокировка входа
   // ВСЕМ сразу недопустима, даже если это защищает от одного уволенного
-  // админа; настоящая защита от "последнего админа" — BR-B12 в
+  // админа/РОПа; настоящая защита от "последнего админа" — BR-B12 в
   // employeeLifecycle.ts (wouldRemoveLastAdmin), которая не даёт увольнению
   // произойти в первую очередь.
-  if (token && managerId && isTerminated && !isAdmin && !isSuperAdminOverride) {
+  if (token && managerId && isTerminated && !bypassesAccessGates && !isSuperAdminOverride) {
     return (
       <html lang="en">
         <body className={inter.className}>
@@ -112,9 +119,10 @@ export default async function RootLayout({
   }
 
   // До связывания учётной записи с карточкой сотрудника показываем понятный
-  // экран вместо пустых списков (TO-BE "Приём нового менеджера"). Админ —
-  // исключение: иначе некому будет зайти и связать аккаунты в /departments.
-  if (token && managerId && !isLinked && !isAdmin && !isSuperAdminOverride) {
+  // экран вместо пустых списков (TO-BE "Приём нового менеджера"). Админ и
+  // РОП — исключение: иначе некому будет зайти и связать аккаунты/завести
+  // отделы в /departments.
+  if (token && managerId && !isLinked && !bypassesAccessGates && !isSuperAdminOverride) {
     return (
       <html lang="en">
         <body className={inter.className}>
