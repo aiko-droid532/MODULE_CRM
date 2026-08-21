@@ -4,7 +4,7 @@ import "./globals.css";
 import Layout from "@/components/Layout/Layout";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
-import { extractRole } from "@/lib/roles";
+import { extractRole, UserRole } from "@/lib/roles";
 import { resolveEffectiveRole } from "@/lib/serverAuth";
 import { ensureAccountTracked } from "@/app/actions/accounts";
 import { isManagerTerminated } from "@/app/actions/employeeLifecycle";
@@ -25,7 +25,9 @@ export default async function RootLayout({
   const token = cookieStore.get('auth_token')?.value;
 
   let userRole = 'manager';
+  let jwtRole: UserRole = 'manager';
   let managerId = '';
+  let claimedEmail: string | null = null;
   let isLinked = true;
   let isTerminated = false;
 
@@ -33,8 +35,9 @@ export default async function RootLayout({
     try {
       const { payload } = await verifyToken(token);
       if (payload && typeof payload !== 'string') {
-        const jwtRole = extractRole(payload);
+        jwtRole = extractRole(payload);
         managerId = (payload.sub as string) || '';
+        claimedEmail = (payload as any).email || (payload as any).user_metadata?.email || null;
         const organizationId = ((payload as any).app_metadata?.organization_id as string) || '741be209-ad6f-4483-92ee-298a36899bcf';
         userRole = await resolveEffectiveRole(jwtRole, managerId);
 
@@ -45,7 +48,6 @@ export default async function RootLayout({
         // а не в каждой странице отдельно.
         if (managerId) {
           const claimedName = (payload as any).name || (payload as any).user_metadata?.name || (payload as any).user_metadata?.full_name || null;
-          const claimedEmail = (payload as any).email || (payload as any).user_metadata?.email || null;
           isLinked = await ensureAccountTracked(managerId, organizationId, claimedName, claimedEmail);
           // Ролевая модель, фаза 5 (BR-B07): доступ прекращается в момент
           // увольнения — та же единственная точка входа, что и для очереди
@@ -58,10 +60,32 @@ export default async function RootLayout({
     } catch (e) {}
   }
 
-  // BR-B07: доступ прекращается в момент увольнения — без исключения для
-  // админа (если уволен именно он, доступ теряет и он; защита "всегда есть
-  // хотя бы один действующий админ" — BR-B12, отдельная гарантия).
-  if (token && managerId && isTerminated) {
+  // "Админ по умолчанию, без настройки": userRole учитывает CRM-роль
+  // (Manager.role), которая ИМЕЕТ ПРИОРИТЕТ над токеном — если эта строка в
+  // нашей БД случайно испортится (ровно так и произошло в инциденте с
+  // блокировкой), userRole перестанет быть 'admin', хотя внешний токен
+  // (ERP/Supabase, подписан, наша БД на него не влияет) продолжает верно
+  // называть человека админом. Поэтому здесь проверяем ОБА источника —
+  // человек считается админом, если так говорит хотя бы один из них.
+  const isAdmin = jwtRole === 'admin' || userRole === 'admin';
+
+  // Аварийный обход для случаев, когда и токен не задан/не про того человека
+  // (например, работаем от имени HR/другого лица) — список id/email в
+  // переменных окружения ВСЕГДА проходит мимо обоих экранов ниже. Пусто по
+  // умолчанию — поведение не меняется, пока не задано.
+  const superAdminIds = (process.env.SUPER_ADMIN_MANAGER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const isSuperAdminOverride =
+    (!!managerId && superAdminIds.includes(managerId)) ||
+    (!!claimedEmail && superAdminEmails.includes(claimedEmail.toLowerCase()));
+
+  // BR-B07: доступ прекращается в момент увольнения. Админ теперь тоже
+  // исключение (симметрично гейту "не привязан" ниже) — блокировка входа
+  // ВСЕМ сразу недопустима, даже если это защищает от одного уволенного
+  // админа; настоящая защита от "последнего админа" — BR-B12 в
+  // employeeLifecycle.ts (wouldRemoveLastAdmin), которая не даёт увольнению
+  // произойти в первую очередь.
+  if (token && managerId && isTerminated && !isAdmin && !isSuperAdminOverride) {
     return (
       <html lang="en">
         <body className={inter.className}>
@@ -90,7 +114,7 @@ export default async function RootLayout({
   // До связывания учётной записи с карточкой сотрудника показываем понятный
   // экран вместо пустых списков (TO-BE "Приём нового менеджера"). Админ —
   // исключение: иначе некому будет зайти и связать аккаунты в /departments.
-  if (token && managerId && !isLinked && userRole !== 'admin') {
+  if (token && managerId && !isLinked && !isAdmin && !isSuperAdminOverride) {
     return (
       <html lang="en">
         <body className={inter.className}>

@@ -31,6 +31,7 @@ import { logAction } from '@/lib/logger';
 import { canManageSystem, UserRole } from '@/lib/roles';
 import { requireRole, getCurrentManagerId } from '@/lib/serverAuth';
 import { initDepartmentTables } from './departments';
+import { wouldRemoveLastAdmin } from './employeeLifecycle';
 // Примечание: resolveEffectiveRole (CRM-роль с приоритетом над токеном)
 // физически определена в @/lib/serverAuth — импортируйте её оттуда напрямую в
 // page.tsx/layout.tsx. Она не может жить в @/lib/roles, потому что roles.ts
@@ -291,6 +292,12 @@ export async function setManagerRole(data: {
 
     const before: any[] = await prisma.$queryRaw`SELECT "role", "roleExpiresAt" FROM "Manager" WHERE id = ${data.managerId}`;
     if (before.length === 0) return { success: false, error: 'Сотрудник не найден' };
+
+    // BR-B12: понижение с admin на любую другую роль — тот же риск "остаться
+    // без администратора", что и увольнение (см. employeeLifecycle.ts).
+    if (before[0].role === 'admin' && data.role !== 'admin' && await wouldRemoveLastAdmin(data.managerId, data.organizationId)) {
+      return { success: false, error: 'Нельзя понизить — это единственный администратор с ролью, назначенной в CRM. Сначала назначьте роль администратора другому сотруднику.' };
+    }
 
     await prisma.$executeRaw`
       UPDATE "Manager"

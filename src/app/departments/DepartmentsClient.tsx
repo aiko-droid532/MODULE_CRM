@@ -226,6 +226,11 @@ export default function DepartmentsClient({
   const [roleEditRole, setRoleEditRole] = useState<UserRole>('manager');
   const [roleEditExpires, setRoleEditExpires] = useState('');
   const [roleEditReason, setRoleEditReason] = useState('');
+  // После инцидента с блокировкой входа даже для админа — при действии над
+  // сотрудником, у которого СЕЙЧАС роль admin, требуем отдельное осознанное
+  // подтверждение (легко перепутать запись в общем списке сотрудников).
+  const [roleEditAdminAck, setRoleEditAdminAck] = useState(false);
+  const [terminateAdminAck, setTerminateAdminAck] = useState(false);
 
   const [showAuditLog, setShowAuditLog] = useState(false);
 
@@ -353,11 +358,15 @@ export default function DepartmentsClient({
     setRoleEditRole((m.role as UserRole) || 'manager');
     setRoleEditExpires(toISODateStr(m.roleExpiresAt));
     setRoleEditReason('');
+    setRoleEditAdminAck(false);
   }
 
   async function handleConfirmRoleEdit() {
     if (!roleEditTarget) return;
     if (!roleEditReason.trim()) return alert('Укажите основание изменения роли');
+    if (roleEditTarget.role === 'admin' && !roleEditAdminAck) {
+      return alert('Подтвердите чекбоксом, что понимаете — у этого сотрудника сейчас роль администратора');
+    }
     setLoading(true);
     const res = await setManagerRole({
       managerId: roleEditTarget.id,
@@ -441,6 +450,7 @@ export default function DepartmentsClient({
     setTerminateSuccessorId('');
     setTerminateReason('');
     setTerminatePending(null);
+    setTerminateAdminAck(false);
     const pending = await getPendingHandoverItems(m.id, organizationId);
     setTerminatePending(pending);
   }
@@ -452,6 +462,9 @@ export default function DepartmentsClient({
       return alert('У сотрудника есть непереданные лиды/сделки — выберите преемника');
     }
     if (!terminateReason.trim()) return alert('Укажите основание увольнения');
+    if (terminateTarget.role === 'admin' && !terminateAdminAck) {
+      return alert('Подтвердите чекбоксом, что понимаете — у этого сотрудника сейчас роль администратора');
+    }
     setLoading(true);
     const res = await terminateManager({
       managerId: terminateTarget.id,
@@ -987,6 +1000,18 @@ export default function DepartmentsClient({
         <div className={styles.modalOverlay} onClick={() => setRoleEditTarget(null)}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <h2>Роль сотрудника: {roleEditTarget.name}</h2>
+            {roleEditTarget.role === 'admin' && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', marginBottom: '12px' }}>
+                <p style={{ color: '#991b1b', fontSize: '0.85rem', margin: '0 0 8px 0', fontWeight: 600 }}>
+                  ⚠️ У этого сотрудника сейчас роль администратора. Если понизить единственного
+                  администратора — войти в систему для управления ролями будет неоткуда.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#991b1b', fontWeight: 400 }}>
+                  <input type="checkbox" checked={roleEditAdminAck} onChange={e => setRoleEditAdminAck(e.target.checked)} />
+                  Понимаю, подтверждаю изменение роли администратора
+                </label>
+              </div>
+            )}
             <div className={styles.formGroup}>
               <label>Роль</label>
               <select className={styles.input} value={roleEditRole} onChange={e => setRoleEditRole(e.target.value as UserRole)}>
@@ -1003,7 +1028,7 @@ export default function DepartmentsClient({
             </div>
             <div className={styles.modalActions}>
               <button className={styles.modalCancelBtn} onClick={() => setRoleEditTarget(null)}>Отмена</button>
-              <button className={styles.modalSaveBtn} onClick={handleConfirmRoleEdit} disabled={loading}>{loading ? 'Сохранение...' : 'Сохранить'}</button>
+              <button className={styles.modalSaveBtn} onClick={handleConfirmRoleEdit} disabled={loading || (roleEditTarget.role === 'admin' && !roleEditAdminAck)}>{loading ? 'Сохранение...' : 'Сохранить'}</button>
             </div>
           </div>
         </div>
@@ -1014,6 +1039,18 @@ export default function DepartmentsClient({
         <div className={styles.modalOverlay} onClick={() => setTerminateTarget(null)}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <h2>Увольнение: {terminateTarget.name}</h2>
+            {terminateTarget.role === 'admin' && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', marginBottom: '12px' }}>
+                <p style={{ color: '#991b1b', fontSize: '0.85rem', margin: '0 0 8px 0', fontWeight: 600 }}>
+                  ⚠️ У этого сотрудника сейчас роль администратора. Если это единственный
+                  администратор — увольнение будет заблокировано системой (BR-B12).
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#991b1b', fontWeight: 400 }}>
+                  <input type="checkbox" checked={terminateAdminAck} onChange={e => setTerminateAdminAck(e.target.checked)} />
+                  Понимаю, подтверждаю увольнение администратора
+                </label>
+              </div>
+            )}
             {terminatePending === null ? (
               <p className={styles.subtitle}>Проверяем незакрытые объекты...</p>
             ) : (
@@ -1043,7 +1080,7 @@ export default function DepartmentsClient({
                 </div>
                 <div className={styles.modalActions}>
                   <button className={styles.modalCancelBtn} onClick={() => setTerminateTarget(null)}>Отмена</button>
-                  <button className={styles.modalSaveBtn} onClick={handleConfirmTerminate} disabled={loading} style={{ background: '#991b1b' }}>
+                  <button className={styles.modalSaveBtn} onClick={handleConfirmTerminate} disabled={loading || (terminateTarget.role === 'admin' && !terminateAdminAck)} style={{ background: '#991b1b' }}>
                     {loading ? 'Увольнение...' : 'Уволить'}
                   </button>
                 </div>

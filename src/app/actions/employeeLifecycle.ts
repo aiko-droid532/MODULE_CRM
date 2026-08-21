@@ -90,6 +90,32 @@ export async function getPendingHandoverItems(managerId: string, organizationId:
   }
 }
 
+// BR-B12: нельзя оставить организацию без единого администратора,
+// назначенного через CRM (Manager.role = 'admin', не истёкшая). Считаем
+// только тех, кого CRM видит сама — если admin существует исключительно
+// через роль в JWT (никогда не назначался через /departments), эта проверка
+// его не найдёт; для такого случая в layout.tsx есть отдельный, не
+// зависящий от БД аварийный обход по SUPER_ADMIN_MANAGER_IDS/_EMAILS.
+export async function wouldRemoveLastAdmin(managerId: string, organizationId: string): Promise<boolean> {
+  try {
+    const rows: any[] = await prisma.$queryRaw`
+      SELECT id FROM "Manager"
+      WHERE "organizationId" = ${organizationId} AND "role" = 'admin' AND status != 'TERMINATED'
+        AND ("roleExpiresAt" IS NULL OR "roleExpiresAt" > NOW())
+    `;
+    const activeAdminIds = rows.map(r => r.id);
+    if (!activeAdminIds.includes(managerId)) return false; // цель — не действующий admin, менять/увольнять безопасно
+    return activeAdminIds.length <= 1;
+  } catch (error) {
+    console.error('wouldRemoveLastAdmin error:', error);
+    // Не можем проверить — не блокируем (иначе сама проверка стала бы новой
+    // причиной блокировки), но и не даём молча снести единственного админа
+    // не зная точно: решаем в пользу "не блокируем операцию", т.к. layout.tsx
+    // всё равно не пускает НИКОГО дальше при ошибке БД такого рода.
+    return false;
+  }
+}
+
 // Увольнение сотрудника: без преемника невозможно, если есть что передавать
 // (BR-B02). Закрытые сделки/лиды не переназначаются (BR-B03). Доступ
 // блокируется сразу (BR-B07) — см. также layout.tsx, где Manager.status
@@ -110,6 +136,9 @@ export async function terminateManager(data: {
     const actingManagerId = await getCurrentManagerId();
     if (actingManagerId && actingManagerId === data.managerId) {
       return { success: false, error: 'Нельзя увольнять самого себя — попросите другого администратора' };
+    }
+    if (await wouldRemoveLastAdmin(data.managerId, data.organizationId)) {
+      return { success: false, error: 'Нельзя уволить — это единственный администратор с ролью, назначенной в CRM. Сначала назначьте роль администратора другому сотруднику.' };
     }
 
     const pending = await getPendingHandoverItems(data.managerId, data.organizationId);
